@@ -44,8 +44,8 @@ async function main() {
   });
 
   const assets = [
-    { name: "USDC", address: AaveV3Sepolia.ASSETS.USDC.UNDERLYING, newCap: 100_000_000n * 10n ** 6n },
-    { name: "DAI", address: AaveV3Sepolia.ASSETS.DAI.UNDERLYING, newCap: 100_000_000n * 10n ** 18n },
+    { name: "USDC", address: AaveV3Sepolia.ASSETS.USDC.UNDERLYING, newCap: 100_000_000n },
+    { name: "DAI", address: AaveV3Sepolia.ASSETS.DAI.UNDERLYING, newCap: 100_000_000n },
   ];
 
   for (const asset of assets) {
