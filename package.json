@@ -1,0 +1,45 @@
+{
+  "name": "hydan",
+  "version": "0.0.1",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "type": "module",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "deploy:sepolia": "hardhat ignition deploy ignition/modules/Deploy.ts --network sepolia",
+    "deploy:sepolia:verify": "hardhat ignition deploy ignition/modules/Deploy.ts --network sepolia --verify",
+    "mint:usdc": "hardhat run scripts/mintTestUSDC.ts --network sepolia",
+    "mint:dai": "hardhat run scripts/mintTestDAI.ts --network sepolia",
+    "test:deposit": "hardhat run scripts/testDeposit.ts --network sepolia",
+    "test:deposit:usdc": "ASSET=USDC hardhat run scripts/testDeposit.ts --network sepolia",
+    "test:deposit:dai": "ASSET=DAI hardhat run scripts/testDeposit.ts --network sepolia",
+    "check:reserve": "hardhat run scripts/checkReserveCap.ts --network hardhatSepolia",
+    "raise:cap": "hardhat run scripts/raiseSupplyCap.ts --network hardhatSepolia",
+    "node": "hardhat node",
+    "clean": "hardhat clean",
+    "lint": "prettier --check \"**/*.{ts,sol,json,md}\"",
+    "format": "prettier --write \"**/*.{ts,sol,json,md}\"",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@bgd-labs/aave-address-book": "^4.44.22",
+    "@iexec-nox/nox-hardhat-plugin": "^0.1.0",
+    "@nomicfoundation/hardhat-ignition": "^3.1.0",
+    "@nomicfoundation/hardhat-toolbox-viem": "^5.0.3",
+    "@types/node": "^25.5.0",
+    "hardhat": "^3.2.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "prettier": "^3.8.1",
+    "prettier-plugin-solidity": "^2.3.1",
+    "typescript": "^6.0.2",
+    "viem": "^2.47.6"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "5.6.1"
+  }
+}
