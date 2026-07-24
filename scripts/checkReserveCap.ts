@@ -6,8 +6,8 @@ const POOL_ABI = parseAbi([
   "function getReserveData(address asset) external view returns (uint256 availableLiquidity, uint256 totalScaledVariableDebt, uint256 totalPrincipalStableDebt, uint256 totalLiquidity, uint256 totalATokenSupply, uint256 totalScaledATokenSupply, uint256 liquidityRate, uint256 variableBorrowRate, uint256 stableBorrowRate, uint256 liquidityIndex, uint256 variableBorrowIndex, uint256 lastUpdateTimestamp)",
 ]);
 
-const POOL_CONFIGURATOR_ABI = parseAbi([
-  "function getReserveConfiguration(address asset) external view returns (uint256 ltv, uint256 liquidationThreshold, uint256 liquidationBonus, uint256 reserveFactor, uint256 usageAsCollateralEnabled, uint256 borrowingEnabled, uint256 stableBorrowRateEnabled, uint256 isActive, uint256 isFrozen, uint256 supplyCap, uint256 borrowCap)",
+const PROTOCOL_DATA_PROVIDER_ABI = parseAbi([
+  "function getReserveCaps(address asset) external view returns (uint256 borrowCap, uint256 supplyCap)",
 ]);
 
 const ERC20_ABI = parseAbi([
@@ -18,18 +18,30 @@ const ERC20_ABI = parseAbi([
 async function checkReserveCap(viem: any, assetName: string, assetAddress: string) {
   console.log(`\n=== ${assetName} (${assetAddress}) ===`);
 
-  const pool = await viem.getContractAt(POOL_ABI, AaveV3Sepolia.POOL);
-  const configurator = await viem.getContractAt(POOL_CONFIGURATOR_ABI, AaveV3Sepolia.POOL_CONFIGURATOR);
+  const pool = getContract({
+    address: AaveV3Sepolia.POOL,
+    abi: POOL_ABI,
+    client: { public: await viem.getPublicClient() },
+  });
 
-  const [reserveData, config] = await Promise.all([
+  const dataProvider = getContract({
+    address: AaveV3Sepolia.AAVE_PROTOCOL_DATA_PROVIDER,
+    abi: PROTOCOL_DATA_PROVIDER_ABI,
+    client: { public: await viem.getPublicClient() },
+  });
+
+  const [reserveData, [borrowCap, supplyCap]] = await Promise.all([
     pool.read.getReserveData([assetAddress]),
-    configurator.read.getReserveConfiguration([assetAddress]),
+    dataProvider.read.getReserveCaps([assetAddress]),
   ]);
 
   const totalATokenSupply = reserveData[4];
-  const supplyCap = config[10];
 
-  const token = await viem.getContractAt(ERC20_ABI, assetAddress);
+  const token = getContract({
+    address: assetAddress,
+    abi: ERC20_ABI,
+    client: { public: await viem.getPublicClient() },
+  });
   const symbol = await token.read.symbol();
   const decimals = await token.read.decimals();
 
@@ -47,6 +59,7 @@ async function checkReserveCap(viem: any, assetName: string, assetAddress: strin
 
   console.log(`aToken total supply: ${aTokenSupplyDisplay} ${symbol}`);
   console.log(`Supply cap:         ${supplyCapDisplay} ${symbol}`);
+  console.log(`Borrow cap:         ${borrowCap === 0n ? "Unlimited" : formatUnits(borrowCap, decimals)} ${symbol}`);
   console.log(`Headroom:           ${headroom} ${symbol}`);
 
   return {
@@ -54,6 +67,7 @@ async function checkReserveCap(viem: any, assetName: string, assetAddress: strin
     decimals,
     aTokenSupply: totalATokenSupply,
     supplyCap,
+    borrowCap,
     headroom: supplyCap === 0n ? 0n : supplyCap - totalATokenSupply,
   };
 }

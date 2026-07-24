@@ -3,8 +3,11 @@ import { parseAbi, formatUnits, getContract } from "viem";
 import { AaveV3Sepolia } from "@bgd-labs/aave-address-book";
 
 const POOL_CONFIGURATOR_ABI = parseAbi([
-  "function getReserveConfiguration(address asset) external view returns (uint256 ltv, uint256 liquidationThreshold, uint256 liquidationBonus, uint256 reserveFactor, uint256 usageAsCollateralEnabled, uint256 borrowingEnabled, uint256 stableBorrowRateEnabled, uint256 isActive, uint256 isFrozen, uint256 supplyCap, uint256 borrowCap)",
   "function setSupplyCap(address asset, uint256 supplyCap) external",
+]);
+
+const PROTOCOL_DATA_PROVIDER_ABI = parseAbi([
+  "function getReserveCaps(address asset) external view returns (uint256 borrowCap, uint256 supplyCap)",
 ]);
 
 const ERC20_ABI = parseAbi([
@@ -26,6 +29,14 @@ async function main() {
   await networkHelpers.setBalance(aclAdmin, 100n * 10n ** 18n);
   const adminClient = await viem.getWalletClient(aclAdmin);
 
+  // Read caps from Protocol Data Provider
+  const dataProvider = getContract({
+    address: AaveV3Sepolia.AAVE_PROTOCOL_DATA_PROVIDER,
+    abi: PROTOCOL_DATA_PROVIDER_ABI,
+    client: { public: publicClient },
+  });
+
+  // Write caps via Pool Configurator
   const configurator = getContract({
     address: AaveV3Sepolia.POOL_CONFIGURATOR,
     abi: POOL_CONFIGURATOR_ABI,
@@ -41,9 +52,8 @@ async function main() {
     console.log(`\n--- ${asset.name} ---`);
     console.log(`Asset: ${asset.address}`);
 
-    // Check current cap
-    const config = await configurator.read.getReserveConfiguration([asset.address]);
-    const currentCap = config[10];
+    // Check current cap via Protocol Data Provider
+    const [borrowCap, currentSupplyCap] = await dataProvider.read.getReserveCaps([asset.address]);
 
     const token = getContract({
       address: asset.address,
@@ -53,10 +63,11 @@ async function main() {
     const symbol = await token.read.symbol();
     const decimals = await token.read.decimals();
 
-    console.log(`Current supply cap: ${currentCap === 0n ? "Unlimited" : formatUnits(currentCap, decimals)} ${symbol}`);
-    console.log(`Setting new cap:    ${formatUnits(asset.newCap, decimals)} ${symbol}`);
+    console.log(`Current supply cap: ${currentSupplyCap === 0n ? "Unlimited" : formatUnits(currentSupplyCap, decimals)} ${symbol}`);
+    console.log(`Current borrow cap: ${borrowCap === 0n ? "Unlimited" : formatUnits(borrowCap, decimals)} ${symbol}`);
+    console.log(`Setting new supply cap: ${formatUnits(asset.newCap, decimals)} ${symbol}`);
 
-    if (currentCap !== 0n && currentCap >= asset.newCap) {
+    if (currentSupplyCap !== 0n && currentSupplyCap >= asset.newCap) {
       console.log("Already at or above target cap, skipping");
       continue;
     }
