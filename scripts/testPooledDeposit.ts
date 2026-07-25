@@ -1,10 +1,10 @@
 import { network } from 'hardhat';
 import { parseAbi, formatUnits, getContract } from 'viem';
 import { AaveV3Sepolia } from '@bgd-labs/aave-address-book';
+import { createViemHandleClient } from '@iexec-nox/handle';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { createViemHandleClient } from '@iexec-nox/handle';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -154,18 +154,11 @@ async function main() {
   // Note: Sepolia requires custom Nox config since it's not in SDK defaults
   console.log('\nAttempting to decrypt encrypted balance using Nox SDK...');
   try {
-    // Create a viem wallet client for the Nox SDK
-    const walletClient = {
-      account: account.account,
-      chain: { id: 11155111, name: 'Sepolia', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: { default: { http: ['https://eth-sepolia.g.alchemy.com/v2/demo'] } } },
-      transport: viem.transport, // viem's transport
-    } as any;
-
-    // Create Nox handle client for Sepolia
+    // Use the actual wallet client from viem.getWalletClients() (account is a WalletClient)
+    // Create Nox handle client for Sepolia with custom config
     // Note: Sepolia requires custom config since it's not in SDK defaults
-    // Using default Sepolia gateway/contract/subgraph from iExec's public endpoints
     const handleClient = await createViemHandleClient(
-      { account: account.account, chain: { id: 11155111 } as any, transport: publicClient.transport } as any,
+      account, // Use the actual wallet client from viem.getWalletClients()
       {
         gatewayUrl: 'https://gateway.sepolia.noxprotocol.io',
         smartContractAddress: '0x24Ef36Ec5b626D7DCD09a98F3083c2758F0F77bF', // NoxCompute on Sepolia
