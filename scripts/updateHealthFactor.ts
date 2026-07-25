@@ -1,7 +1,18 @@
 import { network } from 'hardhat';
-import { parseAbi, formatUnits, getContract, parseEther, formatEther } from 'viem';
+import { parseAbi, formatUnits, getContract } from 'viem';
 import { AaveV3Sepolia } from '@bgd-labs/aave-address-book';
 import { createViemHandleClient } from '@iexec-nox/handle';
+import * as fs from 'fs';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Import the compiled HydanVault ABI from artifacts
+const artifactPath = path.join(__dirname, '../artifacts/contracts/HydanVault.sol/HydanVault.json');
+const artifact = JSON.parse(fs.readFileSync(artifactPath, 'utf8'));
+const VAULT_ABI = artifact.abi;
 
 async function main() {
   const { viem } = await network.create({ network: 'sepolia' });
@@ -22,11 +33,7 @@ async function main() {
   // Create contract instances
   const vault = getContract({
     address: VAULT_ADDRESS,
-    abi: parseAbi([
-      'function updateHealthStatus(externalEuint256 encryptedHealthFactor, bytes calldata inputProof, uint256 threshold) external',
-      'function healthStatus() external view returns (ebool)',
-      'function aavePool() external view returns (address)',
-    ]),
+    abi: VAULT_ABI,
     client: { public: publicClient, wallet: account },
   });
 
@@ -67,11 +74,13 @@ async function main() {
   console.log(`Healthy (plaintext): ${isHealthy}`);
 
   // Encrypt health factor using Nox SDK
-  // Create handle client for encryption with only smartContractAddress (no gatewayUrl/subgraphUrl)
+  // Create handle client for encryption
   const handleClient = await createViemHandleClient(
     account, // Use the actual wallet client
     {
-      smartContractAddress: '0x24ef36ec5b626d7dcd09a98f3083c2758f0f77bf', // NoxCompute on Sepolia
+      gatewayUrl: 'https://gateway.sepolia.noxprotocol.io',
+      smartContractAddress: '0x24Ef36Ec5b626D7DCD09a98F3083c2758F0F77bF', // NoxCompute on Sepolia
+      subgraphUrl: 'https://subgraph.sepolia.noxprotocol.io',
     }
   );
 
