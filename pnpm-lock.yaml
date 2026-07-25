@@ -8,9 +8,15 @@ importers:
 
   .:
     dependencies:
+      '@iexec-nox/nox-protocol-contracts':
+        specifier: 0.2.4
+        version: 0.2.4
       '@openzeppelin/contracts':
         specifier: 5.6.1
         version: 5.6.1
+      encrypted-types:
+        specifier: 0.0.4
+        version: 0.0.4
     devDependencies:
       '@bgd-labs/aave-address-book':
         specifier: ^4.44.22
