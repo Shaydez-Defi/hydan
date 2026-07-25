@@ -1,5 +1,5 @@
 import { network } from "hardhat";
-import { parseAbi, formatUnits, getContract, parseUnits } from "viem";
+import { parseAbi, formatUnits, getContract } from "viem";
 import { AaveV3Sepolia } from "@bgd-labs/aave-address-book";
 import * as fs from "fs";
 import * as path from "path";
@@ -13,7 +13,11 @@ const artifactPath = path.join(__dirname, "../artifacts/contracts/HydanVault.sol
 const artifact = JSON.parse(fs.readFileSync(artifactPath, "utf8"));
 const VAULT_ABI = artifact.abi;
 
-const VAULT_ADDRESS = "0x35DFa22be33993419362367635F9Ff397E8B2D1d" as const;
+// Per-asset vault addresses
+const VAULT_ADDRESSES = {
+  USDC: "0x35DFa22be33993419362367635F9Ff397E8B2D1d" as const,
+  DAI: "0x0E240A869D4FE0420Ff173aeb40C82ffb7184b4d" as const,
+} as const;
 
 const ERC20_ABI = parseAbi([
   "function balanceOf(address account) external view returns (uint256)",
@@ -42,10 +46,6 @@ function getAssetInfo(symbol: AssetSymbol) {
   }
 }
 
-function parseDepositAmount(amountStr: string, decimals: number): bigint {
-  return parseUnits(amountStr, decimals);
-}
-
 async function main() {
   const assetSymbol = (process.env.ASSET || "USDC") as AssetSymbol;
   const assetInfo = getAssetInfo(assetSymbol);
@@ -57,6 +57,9 @@ async function main() {
 
   const userAddress = account.account.address;
   console.log("Testing pooled deposit for:", userAddress);
+  
+  // Use per-asset vault address
+  const VAULT_ADDRESS = VAULT_ADDRESSES[assetSymbol];
   console.log("Vault:", VAULT_ADDRESS);
   console.log("Asset:", assetSymbol);
 
