@@ -12,13 +12,7 @@ const DeployModule = buildModule("DeployModule", (m) => {
     id: "HydanVault",
   });
 
-  // Set aavePool from PoolAddressesProvider
-  const aavePool = m.call(hydanVault, "aavePool", [], {
-    id: "AavePoolBefore",
-  });
-  const poolAddress = m.call(hydanVault, "aavePool", [], { id: "AavePool" });
-
-  // Set aavePool on vault
+  // Set aavePool on vault using PoolAddressesProvider.getPool()
   const poolFromProvider = m.call(
     m.contractAt("IPoolAddressesProvider", aavePoolAddressesProvider),
     "getPool",
@@ -30,7 +24,7 @@ const DeployModule = buildModule("DeployModule", (m) => {
     after: [hydanVault],
   });
 
-  // Get aToken address from ProtocolDataProvider after deployment
+  // Get aToken address from ProtocolDataProvider
   const dataProvider = m.contractAt("IProtocolDataProvider", AaveV3Sepolia.AAVE_PROTOCOL_DATA_PROVIDER);
   const [aTokenAddress] = m.call(dataProvider, "getReserveTokensAddresses", [asset], {
     id: "ATokenAddress",
@@ -42,7 +36,7 @@ const DeployModule = buildModule("DeployModule", (m) => {
     after: [hydanVault],
   });
 
-  return { hydanVault, aavePool: poolAddress, aToken: aTokenAddress };
+  return { hydanVault, aToken: aTokenAddress };
 });
 
 export default DeployModule;
