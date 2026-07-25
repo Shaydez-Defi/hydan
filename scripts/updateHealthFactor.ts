@@ -67,16 +67,11 @@ async function main() {
   console.log(`Healthy (plaintext): ${isHealthy}`);
 
   // Encrypt health factor using Nox SDK
-  // Create handle client for encryption
-  const { nox } = await network.create({ network: 'sepolia' });
-
-  // Create handle client for encryption
+  // Create handle client for encryption with only smartContractAddress (no gatewayUrl/subgraphUrl)
   const handleClient = await createViemHandleClient(
     account, // Use the actual wallet client
     {
-      gatewayUrl: 'https://gateway.sepolia.noxprotocol.io',
-      smartContractAddress: '0x24Ef36Ec5b626D7DCD09a98F3083c2758F0F77bF', // NoxCompute on Sepolia
-      subgraphUrl: 'https://subgraph.sepolia.noxprotocol.io',
+      smartContractAddress: '0x24ef36ec5b626d7dcd09a98f3083c2758f0f77bf', // NoxCompute on Sepolia
     }
   );
 
