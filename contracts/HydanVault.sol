@@ -3,7 +3,7 @@ pragma solidity ^0.8.35;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import { Nox, euint256, externalEuint256 } from "@iexec-nox/nox-protocol-contracts/contracts/sdk/Nox.sol";
+import { Nox, euint256 } from "@iexec-nox/nox-protocol-contracts/contracts/sdk/Nox.sol";
 
 /// @title IPoolAddressesProvider - Aave V3 Pool Addresses Provider
 interface IPoolAddressesProvider {
@@ -106,18 +106,18 @@ contract HydanVault {
     /// @notice Deposit assets, receive encrypted shares
     /// @param assets Amount of underlying asset to deposit
     /// @param receiver Address to receive shares
-    /// @param encryptedShares Encrypted shares handle (from client-side Nox encryption)
-    /// @param inputProof Proof for the encrypted shares handle
     function deposit(
         uint256 assets,
-        address receiver,
-        externalEuint256 encryptedShares,
-        bytes calldata inputProof
+        address receiver
     ) external returns (euint256 shares) {
         require(assets > 0, "Amount must be > 0");
 
-        // Convert external encrypted handle to internal euint256
-        shares = Nox.fromExternal(encryptedShares, inputProof);
+        // Compute shares as plaintext using vault's share price (same math as totalShares)
+        uint256 sharesPlain = previewDeposit(assets);
+        require(sharesPlain > 0, "Zero shares");
+
+        // Convert trusted plaintext shares to encrypted handle on-chain
+        shares = Nox.toEuint256(sharesPlain);
 
         // Transfer assets to vault and supply to Aave
         IERC20(asset).safeTransferFrom(msg.sender, address(this), assets);
@@ -128,7 +128,7 @@ contract HydanVault {
         balanceOf[receiver] = balanceOf[receiver].add(shares);
 
         // Update total shares (public) - calculated from plaintext assets
-        totalShares += previewDeposit(assets);
+        totalShares += sharesPlain;
 
         // Grant receiver and vault permission to decrypt the new balance
         balanceOf[receiver].allow(receiver);
@@ -141,19 +141,19 @@ contract HydanVault {
     /// @param assets Amount of underlying asset to withdraw
     /// @param receiver Address to receive underlying assets
     /// @param owner Address whose shares to burn
-    /// @param encryptedShares Encrypted shares handle to burn
-    /// @param inputProof Proof for the encrypted shares handle
     function withdraw(
         uint256 assets,
         address receiver,
-        address owner,
-        externalEuint256 encryptedShares,
-        bytes calldata inputProof
+        address owner
     ) external returns (euint256 shares) {
         require(assets > 0, "Amount must be > 0");
 
-        // Convert external encrypted handle to internal euint256
-        shares = Nox.fromExternal(encryptedShares, inputProof);
+        // Compute shares to burn as plaintext using vault's share price
+        uint256 sharesPlain = previewWithdraw(assets);
+        require(sharesPlain > 0, "Zero shares");
+
+        // Convert trusted plaintext shares to encrypted handle on-chain
+        shares = Nox.toEuint256(sharesPlain);
 
         // Subtract encrypted shares from owner's balance (reverts in TEE if insufficient)
         balanceOf[owner] = balanceOf[owner].sub(shares);
@@ -163,7 +163,7 @@ contract HydanVault {
         IERC20(asset).safeTransfer(receiver, withdrawn);
 
         // Update total shares (public)
-        totalShares -= previewWithdraw(assets);
+        totalShares -= sharesPlain;
 
         // Grant owner permission to decrypt their new balance
         balanceOf[owner].allow(owner);

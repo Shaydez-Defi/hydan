@@ -12,7 +12,6 @@ describe("HydanVault", function () {
   const USDC = "0x1234567890123456789012345678901234567890" as `0x${string}`;
 
   beforeEach(async function () {
-    // Use local hardhat network (not forking)
     const { viem: v } = await network.create();
     viem = v;
 
@@ -21,7 +20,6 @@ describe("HydanVault", function () {
     user1 = u1;
     user2 = u2;
 
-    // Deploy vault with mock addresses
     const HydanVault = await viem.deployContract("HydanVault", [USDC, USDC]);
     vault = HydanVault;
   });
@@ -40,11 +38,9 @@ describe("HydanVault", function () {
     });
 
     it("Should have zero balance for users initially", async function () {
-      // Encrypted balance should be zero handle (not initialized)
       const balance1 = await vault.read.balanceOf([user1.account.address]);
       const balance2 = await vault.read.balanceOf([user2.account.address]);
       
-      // Zero handles are not initialized
       expect(balance1).to.equal("0x0000000000000000000000000000000000000000000000000000000000000000");
       expect(balance2).to.equal("0x0000000000000000000000000000000000000000000000000000000000000000");
     });
@@ -63,14 +59,36 @@ describe("HydanVault", function () {
     });
   });
 
-  describe("Deposit/Mint/Withdraw/Redeem Reverts", function () {
+  describe("Deposit/Withdraw Reverts", function () {
     it("Should revert with zero assets on deposit", async function () {
+      let error: Error | null = null;
       try {
-        await vault.write.deposit([0n, deployer.account.address, "0x0000000000000000000000000000000000000000000000000000000000000000", "0x"]);
-        throw new Error("Should have reverted");
-      } catch (e: any) {
-        expect(e.message).to.include("Amount must be > 0");
+        await vault.write.deposit([0n, deployer.account.address]);
+      } catch (e) {
+        error = e as Error;
       }
+      expect(error).to.not.be.null;
+      expect(error!.message).to.include("Amount must be > 0");
+    });
+
+    it("Should revert with zero assets on withdraw", async function () {
+      let error: Error | null = null;
+      try {
+        await vault.write.withdraw([0n, deployer.account.address, user1.account.address]);
+      } catch (e) {
+        error = e as Error;
+      }
+      expect(error).to.not.be.null;
+      expect(error!.message).to.include("Amount must be > 0");
+    });
+  });
+
+  describe("Multi-user Proportional Accounting (Encrypted)", function () {
+    it("Should track zero shares for multiple users initially", async function () {
+      const balance1 = await vault.read.balanceOf([user1.account.address]);
+      const balance2 = await vault.read.balanceOf([user2.account.address]);
+      expect(balance1).to.equal("0x0000000000000000000000000000000000000000000000000000000000000000");
+      expect(balance2).to.equal("0x0000000000000000000000000000000000000000000000000000000000000000");
     });
   });
 });
