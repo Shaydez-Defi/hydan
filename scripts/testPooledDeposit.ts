@@ -4,6 +4,7 @@ import { AaveV3Sepolia } from '@bgd-labs/aave-address-book';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { createViemHandleClient } from '@iexec-nox/handle';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -62,7 +63,7 @@ async function main() {
   const assetSymbol = (process.env.ASSET || 'USDC') as AssetSymbol;
   const assetInfo = getAssetInfo(assetSymbol);
 
-  const { viem, nox } = await network.create({ network: 'sepolia' });
+  const { viem } = await network.create({ network: 'sepolia' });
 
   const publicClient = await viem.getPublicClient();
   const [account] = await viem.getWalletClients();
@@ -149,9 +150,32 @@ async function main() {
   const expectedShares = await vault.read.previewDeposit([depositAmount]);
   console.log(`\nExpected shares from previewDeposit: ${expectedShares}`);
 
-  // Try to decrypt the encrypted balance
+  // Try to decrypt the encrypted balance using Nox SDK for live Sepolia
+  // Note: Sepolia requires custom Nox config since it's not in SDK defaults
+  console.log('\nAttempting to decrypt encrypted balance using Nox SDK...');
   try {
-    const decrypted = await nox.decrypt(encryptedBalanceAfter, account);
+    // Create a viem wallet client for the Nox SDK
+    const walletClient = {
+      account: account.account,
+      chain: { id: 11155111, name: 'Sepolia', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: { default: { http: ['https://eth-sepolia.g.alchemy.com/v2/demo'] } } },
+      transport: viem.transport, // viem's transport
+    } as any;
+
+    // Create Nox handle client for Sepolia
+    // Note: Sepolia requires custom config since it's not in SDK defaults
+    // Using default Sepolia gateway/contract/subgraph from iExec's public endpoints
+    const handleClient = await createViemHandleClient(
+      { account: account.account, chain: { id: 11155111 } as any, transport: publicClient.transport } as any,
+      {
+        gatewayUrl: 'https://gateway.sepolia.noxprotocol.io',
+        smartContractAddress: '0x24Ef36Ec5b626D7DCD09a98F3083c2758F0F77bF', // NoxCompute on Sepolia
+        subgraphUrl: 'https://subgraph.sepolia.noxprotocol.io',
+      }
+    );
+
+    console.log('Attempting to decrypt encrypted balance using Nox SDK...');
+    // The encrypted balance is a bytes32 handle, decrypt it
+    const decrypted = await handleClient.decrypt(encryptedBalanceAfter);
     console.log(`\nDecrypted shares: ${decrypted.value}`);
     console.log(`Expected shares: ${expectedShares}`);
     if (decrypted.value === expectedShares) {
