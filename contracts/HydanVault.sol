@@ -103,6 +103,12 @@ contract HydanVault {
         return (assets * totalShares) / totalAssets();
     }
 
+    // Note: mint() and redeem() from ERC-4626 are intentionally omitted.
+    // This vault uses deposit()/withdraw() where shares are computed on-chain
+    // from plaintext asset amounts and then encrypted. mint()/redeem() would
+    // require users to supply encrypted share amounts, which reintroduces the
+    // vulnerability of user-supplied encrypted values.
+
     /// @notice Deposit assets, receive encrypted shares
     /// @param assets Amount of underlying asset to deposit
     /// @param receiver Address to receive shares
