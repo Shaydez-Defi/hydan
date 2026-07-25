@@ -14,6 +14,7 @@
     "test:deposit": "hardhat run scripts/testDeposit.ts --network sepolia",
     "test:deposit:usdc": "ASSET=USDC hardhat run scripts/testDeposit.ts --network sepolia",
     "test:deposit:dai": "ASSET=DAI hardhat run scripts/testDeposit.ts --network sepolia",
+    "test:pooled:deposit": "hardhat run scripts/testPooledDeposit.ts --network sepolia",
     "check:reserve": "hardhat run scripts/checkReserveCap.ts --network hardhatSepolia",
     "check:all:caps": "hardhat run scripts/checkAllReserveCaps.ts --network sepolia",
     "raise:cap": "hardhat run scripts/raiseSupplyCap.ts --network hardhatSepolia",
