@@ -1,5 +1,5 @@
 import { network } from "hardhat";
-import { parseAbi, formatUnits, getContract } from "viem";
+import { parseAbi, formatUnits, getContract, parseUnits } from "viem";
 import { AaveV3Sepolia } from "@bgd-labs/aave-address-book";
 import * as fs from "fs";
 import * as path from "path";
@@ -8,6 +8,7 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Import the compiled HydanVault ABI from artifacts
 const artifactPath = path.join(__dirname, "../artifacts/contracts/HydanVault.sol/HydanVault.json");
 const artifact = JSON.parse(fs.readFileSync(artifactPath, "utf8"));
 const VAULT_ABI = artifact.abi;
@@ -41,6 +42,10 @@ function getAssetInfo(symbol: AssetSymbol) {
   }
 }
 
+function parseDepositAmount(amountStr: string, decimals: number): bigint {
+  return parseUnits(amountStr, decimals);
+}
+
 async function main() {
   const assetSymbol = (process.env.ASSET || "USDC") as AssetSymbol;
   const assetInfo = getAssetInfo(assetSymbol);
@@ -55,9 +60,6 @@ async function main() {
   console.log("Vault:", VAULT_ADDRESS);
   console.log("Asset:", assetSymbol);
 
-  const assetAddress = assetInfo.address;
-  console.log(`${assetSymbol}:`, assetAddress);
-
   const vault = getContract({
     address: VAULT_ADDRESS,
     abi: VAULT_ABI,
@@ -65,7 +67,7 @@ async function main() {
   });
 
   const asset = getContract({
-    address: assetAddress,
+    address: assetInfo.address,
     abi: parseAbi([
       "function balanceOf(address account) external view returns (uint256)",
       "function decimals() external view returns (uint8)",
@@ -80,61 +82,69 @@ async function main() {
   const decimals = await asset.read.decimals();
   console.log(`Token: ${symbol} (${decimals} decimals)`);
 
-  // Deposit amount: use DEPOSIT_AMOUNT env var or default testAmount
-  let depositAmount: bigint;
-  const depositAmountEnv = process.env.DEPOSIT_AMOUNT;
-  if (depositAmountEnv) {
-    depositAmount = parseUnits(depositAmountEnv, decimals);
-    console.log(`Using DEPOSIT_AMOUNT: ${depositAmountEnv} ${symbol}`);
-  } else {
-    depositAmount = assetInfo.testAmount * 10n ** BigInt(decimals);
-    console.log(`Using default amount: ${formatUnits(depositAmount, decimals)} ${symbol}`);
-  }
+  // Check initial balance
+  const balanceBefore = await asset.read.balanceOf([userAddress]);
+  console.log(`${symbol} balance before: ${formatUnits(balanceBefore, decimals)} ${symbol}`);
 
-  // Preview expected shares
-  const expectedShares = await vault.read.previewDeposit([depositAmount]);
-  console.log(`Expected shares (from previewDeposit): ${expectedShares}`);
+  // Check current totalShares
+  const totalSharesBefore = await vault.read.totalShares();
+  console.log(`Total shares before: ${totalSharesBefore}`);
 
-  // Check current allowance
+  // Check current encrypted balance
+  const encryptedBalanceBefore = await vault.read.balanceOf([userAddress]);
+  console.log(`Encrypted balance before: ${encryptedBalanceBefore}`);
+
+  // Deposit amount
+  const depositAmount = assetInfo.testAmount * 10n ** BigInt(decimals);
+  console.log(`\nDepositing ${formatUnits(depositAmount, decimals)} ${symbol}...`);
+
+  // Approve vault to spend
   const allowance = await asset.read.allowance([userAddress, VAULT_ADDRESS]);
-  console.log(`Current allowance: ${formatUnits(allowance, decimals)} ${symbol}`);
-
   if (allowance < depositAmount) {
     console.log(`Approving vault to spend ${symbol}...`);
     const approveHash = await asset.write.approve([VAULT_ADDRESS, depositAmount]);
     console.log("Approve tx hash:", approveHash);
     const approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveHash });
     console.log("Approved! Block:", approveReceipt.blockNumber);
-  } else {
-    console.log("Allowance already sufficient");
   }
 
-  // Deposit via vault
+  // Deposit
   console.log("Calling deposit() on vault...");
-  const depositHash = await vault.write.deposit([assetAddress, depositAmount, userAddress]);
+  const depositHash = await vault.write.deposit([depositAmount, userAddress]);
   console.log("Deposit tx hash:", depositHash);
   const depositReceipt = await publicClient.waitForTransactionReceipt({ hash: depositHash });
   console.log("Deposit confirmed! Block:", depositReceipt.blockNumber);
 
-  // Read encrypted share balance
-  const encryptedBalance = await vault.read.balanceOf([userAddress]);
-  console.log(`Encrypted share balance (raw handle): ${encryptedBalance}`);
+  // Check new totalShares
+  const totalSharesAfter = await vault.read.totalShares();
+  console.log(`Total shares after: ${totalSharesAfter}`);
 
-  // Decrypt the encrypted balance using Nox SDK
-  console.log("Decrypting encrypted share balance using Nox SDK...");
+  // Check new encrypted balance
+  const encryptedBalanceAfter = await vault.read.balanceOf([userAddress]);
+  console.log(`Encrypted balance after: ${encryptedBalanceAfter}`);
+
+  // Check balance after
+  const balanceAfter = await asset.read.balanceOf([userAddress]);
+  console.log(`${symbol} balance after: ${formatUnits(balanceAfter, decimals)} ${symbol}`);
+
+  // Verify the encrypted balance matches expected shares
+  const expectedShares = await vault.read.previewDeposit([depositAmount]);
+  console.log(`\nExpected shares from previewDeposit: ${expectedShares}`);
+
+  // Try to decrypt the encrypted balance
   try {
-    const decrypted = await nox.decrypt(encryptedBalance, account);
+    const decrypted = await nox.decrypt(encryptedBalanceAfter, account);
     console.log(`\nDecrypted shares: ${decrypted.value}`);
     console.log(`Expected shares: ${expectedShares}`);
-    console.log(`Match: ${decrypted.value === expectedShares ? "YES" : "NO"}`);
+    if (decrypted.value === expectedShares) {
+      console.log("✅ Decrypted balance matches expected shares!");
+    } else {
+      console.log("❌ Decrypted balance does NOT match expected shares");
+    }
   } catch (e) {
     console.log("\nNote: Could not decrypt balance (requires proper Nox network setup)");
     console.log("Error:", e);
   }
-
-  // Verify totalShares was updated
-  const totalSharesAfter = await vault.read.totalShares();
-  console.log(`Total shares after deposit: ${totalSharesAfter}`);
 
   console.log("\nDone!");
 }
