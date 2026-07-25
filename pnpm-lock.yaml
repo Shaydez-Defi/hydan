@@ -27,6 +27,9 @@ importers:
       '@types/node':
         specifier: ^25.5.0
         version: 25.9.5
+      chai:
+        specifier: 6.2.2
+        version: 6.2.2
       hardhat:
         specifier: ^3.2.0
         version: 3.11.0
@@ -628,6 +631,10 @@ packages:
   cbor2@1.12.0:
     resolution: {integrity: sha512-3Cco8XQhi27DogSp9Ri6LYNZLi/TBY/JVnDe+mj06NkBjW/ZYOtekaEU4wZ4xcRMNrFkDv8KNtOAqHyDfz3lYg==}
     engines: {node: '>=18.7'}
+
+  chai@6.2.2:
+    resolution: {integrity: sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg==}
+    engines: {node: '>=18'}
 
   chalk@4.1.2:
     resolution: {integrity: sha512-oKnbhFyRIXpUuez8iBMmyEa4nbj4IOQyuhc/wy9kY7/WVPcwIO9VA668Pu8RkO7+0G76SLROeyw9CpQ061i4mA==}
@@ -1614,6 +1621,8 @@ snapshots:
   brorand@1.1.0: {}
 
   cbor2@1.12.0: {}
+
+  chai@6.2.2: {}
 
   chalk@4.1.2:
     dependencies:
