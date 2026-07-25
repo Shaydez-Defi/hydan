@@ -19,12 +19,6 @@
       "@/*": ["./*"]
     }
   },
-  "include": [
-    "hardhat.config.ts",
-    "ignition/modules/**/*",
-    "scripts/**/*",
-    "test/**/*",
-    "contracts/**/*"
-  ],
+  "include": ["hardhat.config.ts", "ignition/modules/**/*", "scripts/**/*", "test/**/*", "contracts/**/*"],
   "exclude": ["node_modules", "dist", "ignition/deployments"]
 }

@@ -17,7 +17,7 @@ async function main() {
   const [account] = await viem.getWalletClients();
 
   const userAddress = account.account.address;
-  console.log('Minting to:', userAddress);
+  console.log('Minting GHO to:', userAddress);
 
   const faucet = getContract({
     address: AaveV3Sepolia.FAUCET,
@@ -25,26 +25,26 @@ async function main() {
     client: { public: publicClient, wallet: account },
   });
 
-  const dai = getContract({
-    address: AaveV3Sepolia.ASSETS.DAI.UNDERLYING,
+  const gho = getContract({
+    address: AaveV3Sepolia.ASSETS.GHO.UNDERLYING,
     abi: ERC20_ABI,
     client: { public: publicClient, wallet: account },
   });
 
-  const symbol = await dai.read.symbol();
-  const decimals = await dai.read.decimals();
+  const symbol = await gho.read.symbol();
+  const decimals = await gho.read.decimals();
   console.log(`Token: ${symbol} (${decimals} decimals)`);
   console.log(`Faucet: ${AaveV3Sepolia.FAUCET}`);
-  console.log(`DAI: ${AaveV3Sepolia.ASSETS.DAI.UNDERLYING}`);
+  console.log(`GHO: ${AaveV3Sepolia.ASSETS.GHO.UNDERLYING}`);
 
-  const balanceBefore = await dai.read.balanceOf([userAddress]);
+  const balanceBefore = await gho.read.balanceOf([userAddress]);
   console.log(`Balance before: ${formatUnits(balanceBefore, decimals)} ${symbol}`);
 
-  const amount = 1000n * 10n ** BigInt(decimals); // 1000 DAI (18 decimals)
+  const amount = 1000n * 10n ** BigInt(decimals); // 1000 GHO (18 decimals)
   console.log(`Minting ${formatUnits(amount, decimals)} ${symbol} via Faucet...`);
 
   try {
-    const hash = await faucet.write.mint([AaveV3Sepolia.ASSETS.DAI.UNDERLYING, userAddress, amount]);
+    const hash = await faucet.write.mint([AaveV3Sepolia.ASSETS.GHO.UNDERLYING, userAddress, amount]);
     console.log('Tx hash:', hash);
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
     console.log('Minted! Block:', receipt.blockNumber);
@@ -52,7 +52,7 @@ async function main() {
     console.error('Mint failed:', error);
   }
 
-  const balanceAfter = await dai.read.balanceOf([userAddress]);
+  const balanceAfter = await gho.read.balanceOf([userAddress]);
   console.log(`Balance after: ${formatUnits(balanceAfter, decimals)} ${symbol}`);
 }
 

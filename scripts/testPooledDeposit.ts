@@ -1,44 +1,50 @@
-import { network } from "hardhat";
-import { parseAbi, formatUnits, getContract } from "viem";
-import { AaveV3Sepolia } from "@bgd-labs/aave-address-book";
-import * as fs from "fs";
-import * as path from "path";
-import { fileURLToPath } from "url";
+import { network } from 'hardhat';
+import { parseAbi, formatUnits, getContract } from 'viem';
+import { AaveV3Sepolia } from '@bgd-labs/aave-address-book';
+import * as fs from 'fs';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Import the compiled HydanVault ABI from artifacts
-const artifactPath = path.join(__dirname, "../artifacts/contracts/HydanVault.sol/HydanVault.json");
-const artifact = JSON.parse(fs.readFileSync(artifactPath, "utf8"));
+const artifactPath = path.join(__dirname, '../artifacts/contracts/HydanVault.sol/HydanVault.json');
+const artifact = JSON.parse(fs.readFileSync(artifactPath, 'utf8'));
 const VAULT_ABI = artifact.abi;
 
 // Per-asset vault addresses
 const VAULT_ADDRESSES = {
-  USDC: "0x35DFa22be33993419362367635F9Ff397E8B2D1d" as const,
-  DAI: "0x0E240A869D4FE0420Ff173aeb40C82ffb7184b4d" as const,
+  USDC: '0x35DFa22be33993419362367635F9Ff397E8B2D1d' as const,
+  DAI: '0x0E240A869D4FE0420Ff173aeb40C82ffb7184b4d' as const,
+  GHO: '0xc4bF5CbDaBE595361438F8c6a187bDc330539c60' as const,
 } as const;
 
 const ERC20_ABI = parseAbi([
-  "function balanceOf(address account) external view returns (uint256)",
-  "function decimals() external view returns (uint8)",
-  "function symbol() external view returns (string)",
-  "function approve(address spender, uint256 amount) external returns (bool)",
-  "function allowance(address owner, address spender) external view returns (uint256)",
+  'function balanceOf(address account) external view returns (uint256)',
+  'function decimals() external view returns (uint8)',
+  'function symbol() external view returns (string)',
+  'function approve(address spender, uint256 amount) external returns (bool)',
+  'function allowance(address owner, address spender) external view returns (uint256)',
 ]);
 
-type AssetSymbol = "USDC" | "DAI";
+type AssetSymbol = 'USDC' | 'DAI' | 'GHO';
 
 function getAssetInfo(symbol: AssetSymbol) {
   switch (symbol) {
-    case "USDC":
+    case 'USDC':
       return {
         address: AaveV3Sepolia.ASSETS.USDC.UNDERLYING,
         testAmount: 10n,
       };
-    case "DAI":
+    case 'DAI':
       return {
         address: AaveV3Sepolia.ASSETS.DAI.UNDERLYING,
+        testAmount: 10n,
+      };
+    case 'GHO':
+      return {
+        address: AaveV3Sepolia.ASSETS.GHO.UNDERLYING,
         testAmount: 10n,
       };
     default:
@@ -47,21 +53,21 @@ function getAssetInfo(symbol: AssetSymbol) {
 }
 
 async function main() {
-  const assetSymbol = (process.env.ASSET || "USDC") as AssetSymbol;
+  const assetSymbol = (process.env.ASSET || 'USDC') as AssetSymbol;
   const assetInfo = getAssetInfo(assetSymbol);
 
-  const { viem, nox } = await network.create({ network: "sepolia" });
+  const { viem, nox } = await network.create({ network: 'sepolia' });
 
   const publicClient = await viem.getPublicClient();
   const [account] = await viem.getWalletClients();
 
   const userAddress = account.account.address;
-  console.log("Testing pooled deposit for:", userAddress);
-  
+  console.log('Testing pooled deposit for:', userAddress);
+
   // Use per-asset vault address
   const VAULT_ADDRESS = VAULT_ADDRESSES[assetSymbol];
-  console.log("Vault:", VAULT_ADDRESS);
-  console.log("Asset:", assetSymbol);
+  console.log('Vault:', VAULT_ADDRESS);
+  console.log('Asset:', assetSymbol);
 
   const vault = getContract({
     address: VAULT_ADDRESS,
@@ -72,11 +78,11 @@ async function main() {
   const asset = getContract({
     address: assetInfo.address,
     abi: parseAbi([
-      "function balanceOf(address account) external view returns (uint256)",
-      "function decimals() external view returns (uint8)",
-      "function symbol() external view returns (string)",
-      "function approve(address spender, uint256 amount) external returns (bool)",
-      "function allowance(address owner, address spender) external view returns (uint256)",
+      'function balanceOf(address account) external view returns (uint256)',
+      'function decimals() external view returns (uint8)',
+      'function symbol() external view returns (string)',
+      'function approve(address spender, uint256 amount) external returns (bool)',
+      'function allowance(address owner, address spender) external view returns (uint256)',
     ]),
     client: { public: publicClient, wallet: account },
   });
@@ -106,17 +112,17 @@ async function main() {
   if (allowance < depositAmount) {
     console.log(`Approving vault to spend ${symbol}...`);
     const approveHash = await asset.write.approve([VAULT_ADDRESS, depositAmount]);
-    console.log("Approve tx hash:", approveHash);
+    console.log('Approve tx hash:', approveHash);
     const approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveHash });
-    console.log("Approved! Block:", approveReceipt.blockNumber);
+    console.log('Approved! Block:', approveReceipt.blockNumber);
   }
 
   // Deposit
-  console.log("Calling deposit() on vault...");
+  console.log('Calling deposit() on vault...');
   const depositHash = await vault.write.deposit([depositAmount, userAddress]);
-  console.log("Deposit tx hash:", depositHash);
+  console.log('Deposit tx hash:', depositHash);
   const depositReceipt = await publicClient.waitForTransactionReceipt({ hash: depositHash });
-  console.log("Deposit confirmed! Block:", depositReceipt.blockNumber);
+  console.log('Deposit confirmed! Block:', depositReceipt.blockNumber);
 
   // Check new totalShares
   const totalSharesAfter = await vault.read.totalShares();
@@ -140,16 +146,16 @@ async function main() {
     console.log(`\nDecrypted shares: ${decrypted.value}`);
     console.log(`Expected shares: ${expectedShares}`);
     if (decrypted.value === expectedShares) {
-      console.log("✅ Decrypted balance matches expected shares!");
+      console.log('✅ Decrypted balance matches expected shares!');
     } else {
-      console.log("❌ Decrypted balance does NOT match expected shares");
+      console.log('❌ Decrypted balance does NOT match expected shares');
     }
   } catch (e) {
-    console.log("\nNote: Could not decrypt balance (requires proper Nox network setup)");
-    console.log("Error:", e);
+    console.log('\nNote: Could not decrypt balance (requires proper Nox network setup)');
+    console.log('Error:', e);
   }
 
-  console.log("\nDone!");
+  console.log('\nDone!');
 }
 
 main().catch((error) => {

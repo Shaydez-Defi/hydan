@@ -1,22 +1,22 @@
-import { createPublicClient, http, parseAbi, formatUnits, getContract } from "viem";
-import { sepolia } from "viem/chains";
-import { AaveV3Sepolia } from "@bgd-labs/aave-address-book";
+import { createPublicClient, http, parseAbi, formatUnits, getContract } from 'viem';
+import { sepolia } from 'viem/chains';
+import { AaveV3Sepolia } from '@bgd-labs/aave-address-book';
 
 const POOL_ABI = parseAbi([
-  "function getReserveData(address asset) external view returns (uint256 availableLiquidity, uint256 totalScaledVariableDebt, uint256 totalPrincipalStableDebt, uint256 totalLiquidity, uint256 totalATokenSupply, uint256 totalScaledATokenSupply, uint256 liquidityRate, uint256 variableBorrowRate, uint256 stableBorrowRate, uint256 liquidityIndex, uint256 variableBorrowIndex, uint256 lastUpdateTimestamp)",
+  'function getReserveData(address asset) external view returns (uint256 availableLiquidity, uint256 totalScaledVariableDebt, uint256 totalPrincipalStableDebt, uint256 totalLiquidity, uint256 totalATokenSupply, uint256 totalScaledATokenSupply, uint256 liquidityRate, uint256 variableBorrowRate, uint256 stableBorrowRate, uint256 liquidityIndex, uint256 variableBorrowIndex, uint256 lastUpdateTimestamp)',
 ]);
 
 const PROTOCOL_DATA_PROVIDER_ABI = parseAbi([
-  "function getReserveCaps(address asset) external view returns (uint256 borrowCap, uint256 supplyCap)",
+  'function getReserveCaps(address asset) external view returns (uint256 borrowCap, uint256 supplyCap)',
 ]);
 
 const ERC20_ABI = parseAbi([
-  "function symbol() external view returns (string)",
-  "function decimals() external view returns (uint8)",
+  'function symbol() external view returns (string)',
+  'function decimals() external view returns (uint8)',
 ]);
 
 function delay(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function withRetry<T>(fn: () => Promise<T>, retries = 3, baseDelay = 1000): Promise<T> {
@@ -70,15 +70,15 @@ async function checkReserveCap(publicClient: any, assetName: string, assetAddres
   const decimals = await withRetry(() => token.read.decimals());
   await delay(300);
 
-  const supplyCapDisplay = supplyCap === 0n ? "Unlimited (0)" : formatUnits(supplyCap, decimals);
+  const supplyCapDisplay = supplyCap === 0n ? 'Unlimited (0)' : formatUnits(supplyCap, decimals);
   const aTokenSupplyDisplay = formatUnits(totalATokenSupply, decimals);
-  const borrowCapDisplay = borrowCap === 0n ? "Unlimited" : formatUnits(borrowCap, decimals);
+  const borrowCapDisplay = borrowCap === 0n ? 'Unlimited' : formatUnits(borrowCap, decimals);
 
   let headroom: string;
   if (supplyCap === 0n) {
-    headroom = "Unlimited";
+    headroom = 'Unlimited';
   } else if (supplyCap <= totalATokenSupply) {
-    headroom = "0 (CAPPED)";
+    headroom = '0 (CAPPED)';
   } else {
     headroom = formatUnits(supplyCap - totalATokenSupply, decimals);
   }
@@ -101,7 +101,7 @@ async function checkReserveCap(publicClient: any, assetName: string, assetAddres
 async function main() {
   const rpcUrl = process.env.SEPOLIA_RPC_URL;
   if (!rpcUrl) {
-    console.error("SEPOLIA_RPC_URL environment variable not set");
+    console.error('SEPOLIA_RPC_URL environment variable not set');
     process.exit(1);
   }
 
@@ -110,8 +110,8 @@ async function main() {
     transport: http(rpcUrl),
   });
 
-  console.log("Checking Aave V3 Sepolia reserve caps (live)");
-  console.log("==============================================");
+  console.log('Checking Aave V3 Sepolia reserve caps (live)');
+  console.log('==============================================');
 
   const assets = Object.entries(AaveV3Sepolia.ASSETS) as [string, { UNDERLYING: string }][];
 
@@ -121,10 +121,10 @@ async function main() {
     results.push({ assetName, ...result });
   }
 
-  console.log("\n--- Summary ---");
+  console.log('\n--- Summary ---');
   for (const r of results) {
-    const capStr = r.supplyCap === 0n ? "∞" : formatUnits(r.supplyCap, r.decimals);
-    const hrStr = r.headroom === 0n ? (r.supplyCap === 0n ? "∞" : "0 (CAPPED)") : formatUnits(r.headroom, r.decimals);
+    const capStr = r.supplyCap === 0n ? '∞' : formatUnits(r.supplyCap, r.decimals);
+    const hrStr = r.headroom === 0n ? (r.supplyCap === 0n ? '∞' : '0 (CAPPED)') : formatUnits(r.headroom, r.decimals);
     console.log(`${r.symbol}: ${formatUnits(r.aTokenSupply, r.decimals)} / ${capStr} (headroom: ${hrStr})`);
   }
 }
