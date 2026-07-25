@@ -18,6 +18,7 @@ const VAULT_ADDRESSES = {
   USDC: '0x35DFa22be33993419362367635F9Ff397E8B2D1d' as const,
   DAI: '0x0E240A869D4FE0420Ff173aeb40C82ffb7184b4d' as const,
   GHO: '0x3DD0a9E4B23dd821F537b1379913707274a00d87' as const,
+  WETH: '0x1234567890123456789012345678901234567890' as const, // placeholder - update after deployment
 } as const;
 
 const ERC20_ABI = parseAbi([
@@ -28,7 +29,7 @@ const ERC20_ABI = parseAbi([
   'function allowance(address owner, address spender) external view returns (uint256)',
 ]);
 
-type AssetSymbol = 'USDC' | 'DAI' | 'GHO';
+type AssetSymbol = 'USDC' | 'DAI' | 'GHO' | 'WETH';
 
 function getAssetInfo(symbol: AssetSymbol) {
   switch (symbol) {
@@ -46,6 +47,11 @@ function getAssetInfo(symbol: AssetSymbol) {
       return {
         address: AaveV3Sepolia.ASSETS.GHO.UNDERLYING,
         testAmount: 10n,
+      };
+    case 'WETH':
+      return {
+        address: AaveV3Sepolia.ASSETS.WETH.UNDERLYING,
+        testAmount: 1n,
       };
     default:
       throw new Error(`Unknown asset: ${symbol}`);
