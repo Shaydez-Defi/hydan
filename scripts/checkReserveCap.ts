@@ -72,12 +72,24 @@ async function main() {
   console.log(`Checking Aave V3 Sepolia reserve caps (network: ${networkName})`);
   console.log("===============================================");
 
-  const usdc = await checkReserveCap(viem, "USDC", AaveV3Sepolia.ASSETS.USDC.UNDERLYING);
-  const dai = await checkReserveCap(viem, "DAI", AaveV3Sepolia.ASSETS.DAI.UNDERLYING);
+  // Iterate over all assets in AaveV3Sepolia.ASSETS
+  const assets = Object.entries(AaveV3Sepolia.ASSETS) as [string, { UNDERLYING: string }][];
+
+  const results: any[] = [];
+  for (const [assetName, assetInfo] of assets) {
+    const result = await checkReserveCap(viem, assetName, assetInfo.UNDERLYING);
+    results.push({ assetName, ...result });
+  }
 
   console.log("\n--- Summary ---");
-  console.log(`${usdc.symbol}: ${formatUnits(usdc.aTokenSupply, usdc.decimals)} / ${usdc.supplyCap === 0n ? "∞" : formatUnits(usdc.supplyCap, usdc.decimals)} (headroom: ${usdc.headroom === 0n ? "∞" : formatUnits(usdc.headroom, usdc.decimals)})`);
-  console.log(`${dai.symbol}: ${formatUnits(dai.aTokenSupply, dai.decimals)} / ${dai.supplyCap === 0n ? "∞" : formatUnits(dai.supplyCap, dai.decimals)} (headroom: ${dai.headroom === 0n ? "∞" : formatUnits(dai.headroom, dai.decimals)})`);
+  console.log("Asset | Symbol | Total Supply | Supply Cap | Borrow Cap | Headroom");
+  console.log("------|--------|--------------|------------|------------|----------");
+  for (const r of results) {
+    const supplyStr = r.supplyCap === 0n ? "∞" : formatUnits(r.supplyCap, r.decimals);
+    const borrowStr = r.borrowCap === 0n ? "∞" : formatUnits(r.borrowCap, r.decimals);
+    const hrStr = r.headroom === 0n ? (r.supplyCap === 0n ? "∞" : "0 (CAPPED)") : formatUnits(r.headroom, r.decimals);
+    console.log(`${r.assetName.padEnd(5)} | ${r.symbol.padEnd(6)} | ${formatUnits(r.aTokenSupply, r.decimals).padStart(12)} | ${supplyStr.padStart(10)} | ${borrowStr.padStart(10)} | ${hrStr}`);
+  }
 }
 
 main().catch((error) => {
