@@ -2,11 +2,8 @@ import { network } from "hardhat";
 import { parseAbi, formatUnits, getContract } from "viem";
 import { AaveV3Sepolia } from "@bgd-labs/aave-address-book";
 
-const POOL_ABI = parseAbi([
-  "function getReserveData(address asset) external view returns (uint256 availableLiquidity, uint256 totalScaledVariableDebt, uint256 totalPrincipalStableDebt, uint256 totalLiquidity, uint256 totalATokenSupply, uint256 totalScaledATokenSupply, uint256 liquidityRate, uint256 variableBorrowRate, uint256 stableBorrowRate, uint256 liquidityIndex, uint256 variableBorrowIndex, uint256 lastUpdateTimestamp)",
-]);
-
 const PROTOCOL_DATA_PROVIDER_ABI = parseAbi([
+  "function getReserveData(address asset) external view returns (uint256 availableLiquidity, uint256 totalScaledVariableDebt, uint256 totalPrincipalStableDebt, uint256 totalLiquidity, uint256 totalATokenSupply, uint256 totalScaledATokenSupply, uint256 liquidityRate, uint256 variableBorrowRate, uint256 stableBorrowRate, uint256 liquidityIndex, uint256 variableBorrowIndex, uint256 lastUpdateTimestamp)",
   "function getReserveCaps(address asset) external view returns (uint256 borrowCap, uint256 supplyCap)",
 ]);
 
@@ -18,12 +15,6 @@ const ERC20_ABI = parseAbi([
 async function checkReserveCap(viem: any, assetName: string, assetAddress: string) {
   console.log(`\n=== ${assetName} (${assetAddress}) ===`);
 
-  const pool = getContract({
-    address: AaveV3Sepolia.POOL,
-    abi: POOL_ABI,
-    client: { public: await viem.getPublicClient() },
-  });
-
   const dataProvider = getContract({
     address: AaveV3Sepolia.AAVE_PROTOCOL_DATA_PROVIDER,
     abi: PROTOCOL_DATA_PROVIDER_ABI,
@@ -31,10 +22,11 @@ async function checkReserveCap(viem: any, assetName: string, assetAddress: strin
   });
 
   const [reserveData, [borrowCap, supplyCap]] = await Promise.all([
-    pool.read.getReserveData([assetAddress]),
+    dataProvider.read.getReserveData([assetAddress]),
     dataProvider.read.getReserveCaps([assetAddress]),
   ]);
 
+  // totalATokenSupply is at index 4 in the ProtocolDataProvider's getReserveData return
   const totalATokenSupply = reserveData[4];
 
   const token = getContract({
@@ -73,9 +65,11 @@ async function checkReserveCap(viem: any, assetName: string, assetAddress: strin
 }
 
 async function main() {
-  const { viem } = await network.create({ network: "hardhatSepolia" });
+  // Use the network passed via CLI (--network) instead of hardcoding
+  const { viem } = await network.create();
 
-  console.log("Checking Aave V3 Sepolia reserve caps (on fork)");
+  const networkName = process.env.HARDHAT_NETWORK || "unknown";
+  console.log(`Checking Aave V3 Sepolia reserve caps (network: ${networkName})`);
   console.log("===============================================");
 
   const usdc = await checkReserveCap(viem, "USDC", AaveV3Sepolia.ASSETS.USDC.UNDERLYING);
