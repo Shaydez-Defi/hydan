@@ -61,7 +61,7 @@ async function main() {
 
   // Get vault's health factor from Aave
   const userAccountData = await pool.read.getUserAccountData([VAULT_ADDRESS]);
-  const healthFactor = userAccountData[6]; // healthFactor is the 7th return value (0-indexed = index 6)
+  const healthFactor = userAccountData[5]; // healthFactor is the 6th return value (0-indexed = index 5)
   console.log(`Vault health factor (ray precision): ${healthFactor}`);
   console.log(`Health factor (formatted): ${formatUnits(healthFactor, 27)}`); // ray precision = 1e27
 
