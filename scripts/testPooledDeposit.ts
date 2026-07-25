@@ -51,7 +51,7 @@ function getAssetInfo(symbol: AssetSymbol) {
     case 'WETH':
       return {
         address: AaveV3Sepolia.ASSETS.WETH.UNDERLYING,
-        testAmount: 1n,
+        testAmount: 10000000000000000n, // 0.01 WETH in wei (10^16)
       };
     default:
       throw new Error(`Unknown asset: ${symbol}`);
@@ -110,7 +110,10 @@ async function main() {
   console.log(`Encrypted balance before: ${encryptedBalanceBefore}`);
 
   // Deposit amount
-  const depositAmount = assetInfo.testAmount * 10n ** BigInt(decimals);
+  // For WETH, testAmount is already in wei (not multiplied by 10^decimals)
+  const depositAmount = assetSymbol === 'WETH' 
+    ? assetInfo.testAmount 
+    : assetInfo.testAmount * 10n ** BigInt(decimals);
   console.log(`\nDepositing ${formatUnits(depositAmount, decimals)} ${symbol}...`);
 
   // Approve vault to spend

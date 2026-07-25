@@ -1,5 +1,5 @@
 import { network } from "hardhat";
-import { parseAbi, formatUnits, getContract, parseEther } from "viem";
+import { parseAbi, formatUnits, getContract, parseEther, formatEther } from "viem";
 import { AaveV3Sepolia } from "@bgd-labs/aave-address-book";
 
 const WETH_ABI = parseAbi([
