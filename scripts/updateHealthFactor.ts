@@ -24,7 +24,7 @@ async function main() {
   console.log('Updating health factor for:', userAddress);
 
   // WETH vault address
-  const VAULT_ADDRESS = '0x41FAd22279BE65872BBABa5C7B8F74C3ca0a5054' as const;
+  const VAULT_ADDRESS = '0x394fdd9013a55da0280ffd33c9e008878490a4d6' as const;
   console.log('Vault:', VAULT_ADDRESS);
 
   // WETH address
@@ -62,6 +62,8 @@ async function main() {
   // Get vault's health factor from Aave
   const userAccountData = await pool.read.getUserAccountData([VAULT_ADDRESS]);
   const healthFactor = userAccountData[5]; // healthFactor is the 6th return value (0-indexed = index 5)
+  // TEMP DIAGNOSTIC: force a normal value to test if the max-uint256 sentinel is what breaks encryption
+  const healthFactorForTest = 2000000000000000000n; // 2.0 in ray precision
   console.log(`Vault health factor (ray precision): ${healthFactor}`);
   console.log(`Health factor (formatted): ${formatUnits(healthFactor, 27)}`); // ray precision = 1e27
 
@@ -74,30 +76,21 @@ async function main() {
   console.log(`Healthy (plaintext): ${isHealthy}`);
 
   // Encrypt health factor using Nox SDK
-  // Create handle client for encryption
-  const handleClient = await createViemHandleClient(
-    account, // Use the actual wallet client
-    {
-      gatewayUrl: 'https://gateway.sepolia.noxprotocol.io',
-      smartContractAddress: '0x24Ef36Ec5b626D7DCD09a98F3083c2758F0F77bF', // NoxCompute on Sepolia
-      subgraphUrl: 'https://subgraph.sepolia.noxprotocol.io',
-    }
-  );
+  const handleClient = await createViemHandleClient(account);
 
-  // Encrypt the health factor
   const encryptedHealthFactor = await handleClient.encryptInput(
-    healthFactor,
+    healthFactorForTest,
     'uint256',
     VAULT_ADDRESS
   );
   console.log(`Encrypted health factor handle: ${encryptedHealthFactor.handle}`);
-  console.log(`Input proof: ${encryptedHealthFactor.inputProof}`);
+  console.log(`Input proof: ${encryptedHealthFactor.handleProof}`);
 
   // Submit to contract
   console.log('Submitting health factor to vault...');
   const hash = await vault.write.updateHealthStatus([
     encryptedHealthFactor.handle,
-    encryptedHealthFactor.inputProof,
+    encryptedHealthFactor.handleProof,
     1000000000000000000000000000n // threshold = 1e27 (1.0 in ray)
   ]);
   console.log('Tx hash:', hash);

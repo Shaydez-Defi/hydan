@@ -19,7 +19,7 @@ const VAULT_ADDRESSES = {
   USDC: '0x35DFa22be33993419362367635F9Ff397E8B2D1d' as const,
   DAI: '0x0E240A869D4FE0420Ff173aeb40C82ffb7184b4d' as const,
   GHO: '0x3DD0a9E4B23dd821F537b1379913707274a00d87' as const,
-  WETH: '0x41FAd22279BE65872BBABa5C7B8F74C3ca0a5054' as const,
+  WETH: '0x394fdd9013a55da0280ffd33c9e008878490a4d6' as const,
 } as const;
 
 const ERC20_ABI = parseAbi([
@@ -150,24 +150,10 @@ async function main() {
   const expectedShares = await vault.read.previewDeposit([depositAmount]);
   console.log(`\nExpected shares from previewDeposit: ${expectedShares}`);
 
-  // Try to decrypt the encrypted balance using Nox SDK for live Sepolia
-  // Note: Sepolia requires custom Nox config since it's not in SDK defaults
   console.log('\nAttempting to decrypt encrypted balance using Nox SDK...');
   try {
-    // Use the actual wallet client from viem.getWalletClients() (account is a WalletClient)
-    // Create Nox handle client for Sepolia with custom config
-    // Note: Sepolia requires custom config since it's not in SDK defaults
-    const handleClient = await createViemHandleClient(
-      account, // Use the actual wallet client from viem.getWalletClients()
-      {
-        gatewayUrl: 'https://gateway.sepolia.noxprotocol.io',
-        smartContractAddress: '0x24Ef36Ec5b626D7DCD09a98F3083c2758F0F77bF', // NoxCompute on Sepolia
-        subgraphUrl: 'https://subgraph.sepolia.noxprotocol.io',
-      }
-    );
+    const handleClient = await createViemHandleClient(account);
 
-    console.log('Attempting to decrypt encrypted balance using Nox SDK...');
-    // The encrypted balance is a bytes32 handle, decrypt it
     const decrypted = await handleClient.decrypt(encryptedBalanceAfter);
     console.log(`\nDecrypted shares: ${decrypted.value}`);
     console.log(`Expected shares: ${expectedShares}`);

@@ -27,14 +27,7 @@ async function main() {
   const VAULT_ADDRESS = '0x41FAd22279BE65872BBABa5C7B8F74C3ca0a5054' as const;
   console.log('Vault:', VAULT_ADDRESS);
 
-  // Test Nox encryption directly without Aave
-  // Create handle client for encryption
-  const handleClient = await createViemHandleClient(
-    account, // Use the actual wallet client
-    {
-      smartContractAddress: '0x24ef36ec5b626d7dcd09a98f3083c2758f0f77bf', // NoxCompute on Sepolia
-    }
-  );
+  const handleClient = await createViemHandleClient(account);
 
   // Test encryptInput with a simple value
   console.log('Testing encryptInput on Sepolia...');

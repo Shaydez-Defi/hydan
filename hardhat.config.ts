@@ -1,7 +1,6 @@
 import hardhatToolboxViemPlugin from '@nomicfoundation/hardhat-toolbox-viem';
 import noxPlugin from '@iexec-nox/nox-hardhat-plugin';
-import { defineConfig } from 'hardhat/config';
-import { configVariable } from 'hardhat/config';
+import { defineConfig, configVariable } from 'hardhat/config';
 
 export default defineConfig({
   plugins: [hardhatToolboxViemPlugin, noxPlugin],
