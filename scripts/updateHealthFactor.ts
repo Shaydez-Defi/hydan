@@ -62,8 +62,6 @@ async function main() {
   // Get vault's health factor from Aave
   const userAccountData = await pool.read.getUserAccountData([VAULT_ADDRESS]);
   const healthFactor = userAccountData[5]; // healthFactor is the 6th return value (0-indexed = index 5)
-  // TEMP DIAGNOSTIC: force a normal value to test if the max-uint256 sentinel is what breaks encryption
-  const healthFactorForTest = 2000000000000000000n; // 2.0 in ray precision
   console.log(`Vault health factor (ray precision): ${healthFactor}`);
   console.log(`Health factor (formatted): ${formatUnits(healthFactor, 27)}`); // ray precision = 1e27
 
@@ -79,7 +77,7 @@ async function main() {
   const handleClient = await createViemHandleClient(account);
 
   const encryptedHealthFactor = await handleClient.encryptInput(
-    healthFactorForTest,
+    healthFactor,
     'uint256',
     VAULT_ADDRESS
   );

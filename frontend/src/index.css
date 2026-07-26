@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+}
+
+@layer components {
+  .card {
+    @apply border border-border rounded-none p-6;
+  }
+  .btn {
+    @apply px-6 py-2 text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-carmine text-white hover:bg-carmine-light;
+  }
+  .btn-secondary {
+    @apply btn bg-leaf text-white hover:bg-leaf-light;
+  }
+  .btn-ghost {
+    @apply btn border border-border text-muted hover:text-white hover:border-white;
+  }
+  .input {
+    @apply w-full bg-transparent border border-border px-3 py-2 text-white text-sm outline-none focus:border-white transition-colors;
+  }
+  .stat-value {
+    @apply font-numeric text-2xl tracking-tight;
+  }
+  .label {
+    @apply text-xs text-muted uppercase tracking-widest;
+  }
+}
