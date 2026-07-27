@@ -1,219 +1,702 @@
-import { useState, useCallback } from 'react';
-import { useAccount, useConnect, useDisconnect } from 'wagmi';
-import { Wallet, ArrowUpRight, ArrowDownLeft, TrendingUp } from 'lucide-react';
-import { formatUnits, parseUnits, maxUint256 } from 'viem';
-import vaultAbi from './abi/HydanVault.json';
+import { useState, useEffect } from "react";
 import {
-  useVaultTotalShares,
-  useVaultTotalAssets,
-  useAssetInfo,
-  useUserBalance,
-  usePreviewDeposit,
-  useVaultDeposit,
-  useVaultWithdraw,
-  useTokenAllowance,
-  useTokenApprove,
-} from './hooks.js';
+  Moon,
+  Sun,
+  Github,
+  Wallet,
+  ShieldCheck,
+  ShieldAlert,
+  Landmark,
+  CircleDollarSign,
+  Unlock,
+  CheckCircle2,
+  Loader2,
+  Search,
+  Zap,
+} from "lucide-react";
 
-const VAULT_ADDRESS = '0x394fdd9013a55da0280ffd33c9e008878490a4d6';
-const WETH = '0xC558DBdd856501FCd9aaF1E62eae57A9F0629a3c';
+function useGoogleFonts() {
+  useEffect(() => {
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href =
+      "https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@700;800&family=Bagel+Fat+One&family=Manrope:wght@400;500;600;700;800&display=swap";
+    document.head.appendChild(link);
+    return () => document.head.removeChild(link);
+  }, []);
+}
 
-const erc20Approve = [
-  { inputs: [{ name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' }], name: 'approve', outputs: [{ type: 'bool' }], stateMutability: 'nonpayable', type: 'function' },
-];
+/* ---------------------------------------------------------------------
+   Locked tokens — shared across every screen.
+--------------------------------------------------------------------- */
+const PALETTES = {
+  light: {
+    bg: "#E4EADC",
+    dot: "rgba(31,58,34,0.10)",
+    surface: "#FAFAF6",
+    surfaceGlass: "rgba(255,255,255,0.72)",
+    heroCard: "#D1DCC6",
+    chip: "#BECFAC",
+    ink: "#1B3320",
+    inkSoft: "rgba(27,51,32,0.60)",
+    inkFaint: "rgba(27,51,32,0.38)",
+    pill: "rgba(255,255,255,0.75)",
+    ctaBg: "#17281B",
+    ctaText: "#F4F7F1",
+    green: "#4C8A5C",
+    greenDeep: "#2E5B39",
+    greenLight: "#7CBE8C",
+    greenInk: "#122016",
+    greenSoft: "rgba(76,138,92,0.14)",
+    carmine: "#B23A30",
+    carmineSoft: "rgba(178,58,48,0.12)",
+    cardBorder: "rgba(27,51,32,0.08)",
+    cardShadow: "0 1px 2px rgba(27,51,32,0.05), 0 14px 28px -12px rgba(27,51,32,0.16)",
+    scrimBg: "rgba(20,32,22,0.32)",
+    inputBg: "rgba(27,51,32,0.05)",
+    glassRGB: "255,255,255",
+  },
+  dark: {
+    bg: "#0B0F0C",
+    dot: "rgba(237,241,234,0.06)",
+    surface: "#161C13",
+    surfaceGlass: "rgba(22,28,19,0.72)",
+    heroCard: "#1D2B1F",
+    chip: "#293A2C",
+    ink: "#EDF1EA",
+    inkSoft: "rgba(237,241,234,0.58)",
+    inkFaint: "rgba(237,241,234,0.34)",
+    pill: "#161C13",
+    ctaBg: "#EDF1EA",
+    ctaText: "#12180F",
+    green: "#6FA97D",
+    greenDeep: "#3F6B4C",
+    greenLight: "#9BD1A7",
+    greenInk: "#0D160F",
+    greenSoft: "rgba(111,169,125,0.16)",
+    carmine: "#D9695F",
+    carmineSoft: "rgba(217,105,95,0.14)",
+    cardBorder: "rgba(255,255,255,0.10)",
+    cardShadow: "0 2px 4px rgba(0,0,0,0.3), 0 20px 40px -14px rgba(0,0,0,0.6)",
+    scrimBg: "rgba(0,0,0,0.55)",
+    inputBg: "rgba(255,255,255,0.06)",
+    glassRGB: "63,107,76",
+  },
+};
 
-function Stat({ label, value }) {
+function GlobalStyle({ c }) {
   return (
-    <div className="card flex-1 min-w-0">
-      <p className="label mb-2">{label}</p>
-      <p className="stat-value truncate">{value}</p>
+    <style>{`
+      .hydan-root { --ease-out: cubic-bezier(0.23, 1, 0.32, 1); }
+      html, body { overflow-x: hidden; }
+      html { scrollbar-width: thin; scrollbar-color: ${c.chip} transparent; }
+      html::-webkit-scrollbar { width: 8px; height: 8px; }
+      html::-webkit-scrollbar-track { background: transparent; }
+      html::-webkit-scrollbar-thumb { background: ${c.chip}; border-radius: 999px; }
+      html::-webkit-scrollbar-thumb:hover { background: ${c.green}; }
+      .font-wordmark { font-family: 'Schibsted Grotesk', sans-serif; font-weight: 800; letter-spacing: -0.02em; }
+      .font-num { font-variant-numeric: tabular-nums; }
+      .font-num-display { font-family: 'Bagel Fat One', cursive; font-variant-numeric: tabular-nums; }
+      .press { transition: transform 150ms var(--ease-out), background-color 180ms ease, opacity 180ms ease; }
+      .press:active { transform: scale(0.96); }
+      .hydan-root button:focus-visible, .hydan-root a:focus-visible {
+        outline: 2px solid ${c.green}; outline-offset: 2px;
+      }
+      .hydan-root input:focus, .hydan-root input:focus-visible { outline: none; }
+      .liquid-glass {
+        background: ${c.inputBg};
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border: 1px solid rgba(255,255,255,0.10);
+        box-shadow: inset 0 1px 1px rgba(255,255,255,0.08), ${c.cardShadow};
+      }
+      .wordmark-solid {
+        background: linear-gradient(180deg, ${c.greenLight} 0%, ${c.green} 45%, ${c.greenDeep} 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        -webkit-text-fill-color: transparent;
+      }
+      .toggle-track { transition: background-color 220ms var(--ease-out); }
+      .toggle-knob { transition: transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1); }
+      .btn-glass {
+        background: rgba(${c.glassRGB},0.22);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+        border: 1px solid rgba(${c.glassRGB},0.38);
+        box-shadow: inset 0 1px 1px rgba(255,255,255,0.35), inset 0 -6px 10px -6px rgba(255,255,255,0.08), 0 10px 24px -8px rgba(0,0,0,0.30);
+        transition: transform 320ms cubic-bezier(0.45, 0, 0.15, 1), box-shadow 320ms cubic-bezier(0.45, 0, 0.15, 1), background-color 280ms ease;
+      }
+      .btn-glass:hover {
+        background: rgba(${c.glassRGB},0.30);
+        transform: translateY(-2px);
+        box-shadow: inset 0 1px 1px rgba(255,255,255,0.45), inset 0 -6px 10px -6px rgba(255,255,255,0.1), 0 16px 30px -8px rgba(0,0,0,0.35);
+      }
+      .btn-glass:active {
+        transform: translateY(0px) scale(0.97);
+        box-shadow: inset 0 1px 1px rgba(255,255,255,0.3), 0 4px 10px -4px rgba(0,0,0,0.25);
+        transition: transform 140ms cubic-bezier(0.45, 0, 0.15, 1), box-shadow 140ms cubic-bezier(0.45, 0, 0.15, 1);
+      }
+      .action-card, .vault-card { transition: transform 180ms var(--ease-out), box-shadow 180ms var(--ease-out); }
+      .action-card:hover, .vault-card:hover { transform: translateY(-3px); }
+      @keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+      .fade-up { animation: fadeUp 480ms var(--ease-out) both; }
+      @keyframes scrimIn { from { opacity: 0; } to { opacity: 1; } }
+      .scrim-in { animation: scrimIn 200ms ease-out both; }
+      @keyframes modalIn { from { opacity: 0; transform: translateY(10px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+      .modal-in { animation: modalIn 260ms var(--ease-out) both; }
+      .reveal-mask { filter: blur(7px); opacity: 0.5; transition: filter 220ms var(--ease-out), opacity 220ms var(--ease-out); }
+      .reveal-group:hover .reveal-mask, .reveal-group:focus-within .reveal-mask { filter: blur(0); opacity: 1; }
+      @media (prefers-reduced-motion: reduce) { .fade-up { animation: none !important; opacity: 1 !important; transform: none !important; } }
+    `}</style>
+  );
+}
+
+function DotGrid({ c }) {
+  return (
+    <div
+      className="absolute inset-0 pointer-events-none"
+      style={{ backgroundImage: `radial-gradient(circle, ${c.dot} 1.4px, transparent 1.4px)`, backgroundSize: "26px 26px" }}
+    />
+  );
+}
+
+function ThemeToggle({ c, theme, onToggle }) {
+  const isDark = theme === "dark";
+  return (
+    <button
+      onClick={onToggle}
+      aria-label="Toggle theme"
+      className="press toggle-track relative w-14 h-8 rounded-full flex items-center px-1"
+      style={{ background: isDark ? c.greenDeep : c.cardBorder }}
+    >
+      <span
+        className="toggle-knob w-6 h-6 rounded-full flex items-center justify-center"
+        style={{ background: c.surface, color: c.ink, transform: isDark ? "translateX(22px)" : "translateX(0)" }}
+      >
+        {isDark ? <Sun size={13} /> : <Moon size={13} />}
+      </span>
+    </button>
+  );
+}
+
+/* ---------------------------------------------------------------------
+   NavBar — logo always left. When connected, screen-switcher pills sit
+   in the middle and the wallet address shows on the right; when not
+   connected, it's just theme + GitHub.
+--------------------------------------------------------------------- */
+function NavBar({ c, theme, onToggle, connected, screen, onNavigate }) {
+  const links = [
+    { key: "vault", label: "Vault" },
+    { key: "explorer", label: "Explorer" },
+    { key: "automation", label: "Automation" },
+  ];
+  const activeIndex = links.findIndex((l) => l.key === screen);
+
+  return (
+    <div className="sticky top-0 z-40 px-5 pt-5 pb-3">
+      <div className="max-w-5xl mx-auto flex items-start justify-between gap-2">
+        <div className="rounded-full px-4 py-2" style={{ background: c.pill, boxShadow: c.cardShadow, backdropFilter: "blur(10px)" }}>
+          <span className="font-wordmark text-base" style={{ color: c.ink }}>h<span style={{ marginLeft: "-0.05em", marginRight: "-0.05em" }}>ý</span>dan</span>
+        </div>
+
+        <div
+          className="flex items-center gap-2 rounded-full pl-3 pr-1.5 py-1.5"
+          style={{ background: c.pill, boxShadow: c.cardShadow, backdropFilter: "blur(10px)" }}
+        >
+          {connected && <span className="font-num text-xs" style={{ color: c.inkSoft }}>0x4f...9a2c</span>}
+          <ThemeToggle c={c} theme={theme} onToggle={onToggle} />
+          <button className="press w-8 h-8 rounded-full flex items-center justify-center" style={{ background: c.surface, color: c.ink, boxShadow: c.cardShadow }}>
+            <Github size={14} />
+          </button>
+        </div>
+      </div>
+
+      {connected && (
+        <div className="flex justify-center mt-3">
+          <div
+            className="relative flex items-center gap-1 rounded-full p-1.5"
+            style={{ background: c.pill, boxShadow: c.cardShadow, backdropFilter: "blur(10px)" }}
+          >
+            <div
+              className="absolute top-1.5 bottom-1.5 rounded-full"
+              style={{
+                background: c.chip,
+                width: `calc((100% - 12px) / 3)`,
+                left: `calc(6px + ${activeIndex} * ((100% - 12px) / 3))`,
+                transition: "left 320ms cubic-bezier(0.45, 0, 0.15, 1)",
+              }}
+            />
+            {links.map((l) => (
+              <button
+                key={l.key}
+                onClick={() => onNavigate(l.key)}
+                className="relative z-10 text-sm font-medium px-4 py-1.5 rounded-full text-center"
+                style={{
+                  color: screen === l.key ? c.ink : c.inkSoft,
+                  transition: "color 320ms cubic-bezier(0.45, 0, 0.15, 1)",
+                  minWidth: "92px",
+                }}
+              >
+                {l.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function ConnectButton() {
-  const { address, isConnected } = useAccount();
-  const { connectors, connect } = useConnect();
-  const { disconnect } = useDisconnect();
+/* ---------------------------------------------------------------------
+   Landing
+--------------------------------------------------------------------- */
+function ProofCard({ c }) {
+  return (
+    <div
+      className="fade-up liquid-glass px-7 py-6 max-w-sm w-full"
+      style={{ borderRadius: "32px", animationDelay: "260ms" }}
+    >
+      <p className="text-xs font-semibold uppercase tracking-wide mb-5" style={{ color: c.inkFaint }}>
+        Same loan, two views
+      </p>
 
-  if (isConnected) {
-    return (
-      <div className="flex items-center gap-3">
-        <span className="font-mono text-xs text-muted">{address.slice(0, 6)}...{address.slice(-4)}</span>
-        <button onClick={disconnect} className="btn-ghost text-xs">Disconnect</button>
+      <div className="pb-4" style={{ borderBottom: `1px solid ${c.cardBorder}` }}>
+        <div className="font-semibold uppercase tracking-wide mb-2" style={{ color: c.inkFaint, fontSize: "10px" }}>
+          Aave · public record
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="h-3.5 rounded-sm" style={{ width: "48px", background: c.ink, opacity: 0.85 }} />
+          <span className="h-3.5 rounded-sm" style={{ width: "34px", background: c.ink, opacity: 0.85 }} />
+          <span className="h-3.5 rounded-sm" style={{ width: "58px", background: c.ink, opacity: 0.85 }} />
+          <span className="h-3.5 rounded-sm" style={{ width: "26px", background: c.ink, opacity: 0.85 }} />
+        </div>
       </div>
-    );
+
+      <div className="pt-4">
+        <div className="font-semibold uppercase tracking-wide mb-2" style={{ color: c.inkFaint, fontSize: "10px" }}>
+          hýdan · decrypted for you
+        </div>
+        <div className="font-num text-sm sm:text-base font-semibold" style={{ color: c.green }}>
+          healthy
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LandingFooter({ c }) {
+  return (
+    <footer className="relative overflow-hidden mt-8" style={{ background: c.heroCard }}>
+      <div className="relative z-10 max-w-5xl mx-auto px-6 md:px-12 pt-14 pb-10">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-8 mb-10">
+          <div className="col-span-2 sm:col-span-1">
+            <span className="font-wordmark text-2xl" style={{ color: c.ink }}>h<span style={{ marginLeft: "-0.05em", marginRight: "-0.05em" }}>ý</span>dan</span>
+            <p className="text-xs mt-2 leading-relaxed max-w-[180px]" style={{ color: c.inkSoft }}>
+              A confidential account layer for existing DeFi.
+            </p>
+          </div>
+          <div>
+            <h4 className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: c.inkFaint }}>Product</h4>
+            <ul className="space-y-2 text-sm" style={{ color: c.inkSoft }}>
+              <li>Vault</li>
+              <li>Explorer</li>
+              <li>Automation</li>
+            </ul>
+          </div>
+          <div>
+            <h4 className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: c.inkFaint }}>Resources</h4>
+            <ul className="space-y-2 text-sm" style={{ color: c.inkSoft }}>
+              <li>GitHub</li>
+              <li>Docs</li>
+              <li>iExec WTF Hackathon</li>
+            </ul>
+          </div>
+        </div>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pt-6" style={{ borderTop: `1px solid ${c.cardBorder}` }}>
+          <span className="font-num text-[11px]" style={{ color: c.inkFaint }}>Built on Nox × Aave — Sepolia testnet</span>
+          <span className="font-num text-[11px]" style={{ color: c.inkFaint }}>iExec WTF Hackathon 2026</span>
+        </div>
+      </div>
+      <div
+        className="font-wordmark select-none pointer-events-none text-center leading-none"
+        style={{ fontSize: "clamp(4.5rem, 22vw, 13rem)", color: c.green, opacity: 0.08, transform: "translateY(28%)" }}
+        aria-hidden="true"
+      >
+        hýdan
+      </div>
+    </footer>
+  );
+}
+
+function LandingScreen({ c, onConnect }) {
+  return (
+    <main className="relative flex flex-col justify-center px-6 md:px-12 py-16 max-w-5xl mx-auto w-full" style={{ minHeight: "calc(100vh - 96px)" }}>
+      <div className="relative z-10 flex flex-col lg:flex-row lg:items-center gap-10 lg:gap-16">
+        <div className="flex-1">
+          <h1 className="fade-up font-wordmark wordmark-solid text-left" style={{ fontSize: "clamp(4rem, 12vw, 8.5rem)", lineHeight: 1.05 }}>
+            h<span style={{ marginLeft: "-0.05em", marginRight: "-0.05em" }}>ý</span>dan
+          </h1>
+          <p className="fade-up text-left text-base md:text-lg mt-2 mb-8 max-w-md" style={{ color: c.inkSoft, animationDelay: "90ms" }}>
+            Borrow on Aave without broadcasting your balance sheet.
+          </p>
+          <div className="fade-up flex items-center gap-3" style={{ animationDelay: "160ms" }}>
+            <button onClick={onConnect} className="press btn-glass inline-flex items-center gap-2 text-sm font-semibold px-7 py-3.5 rounded-full" style={{ color: c.ink }}>
+              <Wallet size={15} />
+              Connect wallet
+            </button>
+          </div>
+        </div>
+        <div className="lg:flex-1 lg:flex lg:justify-end">
+          <ProofCard c={c} />
+        </div>
+      </div>
+    </main>
+  );
+}
+
+/* ---------------------------------------------------------------------
+   Vault
+--------------------------------------------------------------------- */
+const ACTIONS = [
+  { key: "deposit", icon: Landmark, label: "Deposit", unit: "ETH", verb: "Deposit", tone: "green", helper: "Add collateral", max: "4.82", hfAfter: "2.31" },
+  { key: "borrow", icon: CircleDollarSign, label: "Borrow", unit: "USDC", verb: "Borrow", tone: "carmine", helper: "Draw more debt", max: "2,310", hfAfter: "1.42" },
+  { key: "repay", icon: ShieldCheck, label: "Repay", unit: "USDC", verb: "Repay", tone: "green", helper: "Pay down debt", max: "6,140", hfAfter: "2.68" },
+  { key: "withdraw", icon: Unlock, label: "Withdraw", unit: "ETH", verb: "Withdraw", tone: "carmine", helper: "Free collateral", max: "1.10", hfAfter: "1.51" },
+];
+
+function ActionCard({ c, action, onOpen, delay }) {
+  const Icon = action.icon;
+  return (
+    <button
+      onClick={() => onOpen(action.key)}
+      className="fade-up action-card liquid-glass press text-left p-5 flex-1"
+      style={{ animationDelay: delay, borderRadius: "36px", minWidth: "150px" }}
+    >
+      <span className="inline-flex items-center justify-center w-9 h-9 rounded-full mb-3" style={{ background: "rgba(255,255,255,0.10)", color: c.ink }}>
+        <Icon size={16} strokeWidth={1.75} />
+      </span>
+      <div className="text-sm font-semibold mb-0.5" style={{ color: c.ink }}>{action.label}</div>
+      <div className="text-xs" style={{ color: c.inkSoft }}>{action.helper}</div>
+    </button>
+  );
+}
+
+function ActionModal({ c, action, onClose }) {
+  const [amount, setAmount] = useState("");
+  const [status, setStatus] = useState(null);
+  if (!action) return null;
+  const Icon = action.icon;
+
+  function submit() {
+    setStatus("pending");
+    setTimeout(() => setStatus("success"), 1300);
   }
 
   return (
-    <div className="flex gap-2">
-      {connectors.map((c) => (
-        <button key={c.id} onClick={() => connect({ connector: c })} className="btn-primary flex items-center gap-2">
-          <Wallet size={14} />
-          {c.name}
-        </button>
-      ))}
-    </div>
-  );
-}
+    <div className="scrim-in fixed inset-0 z-50 flex items-center justify-center px-5" style={{ background: c.scrimBg, backdropFilter: "blur(6px)" }} onClick={onClose}>
+      <div className="modal-in relative w-full max-w-xs" onClick={(e) => e.stopPropagation()}>
+        <div className="relative p-6" style={{ background: c.surfaceGlass, backdropFilter: "blur(24px)", boxShadow: c.cardShadow, borderRadius: "40px" }}>
+          <div className="flex items-center gap-2 mb-1">
+            <Icon size={16} strokeWidth={1.75} style={{ color: c.inkSoft }} />
+            <h2 className="text-base font-semibold" style={{ color: c.ink }}>{action.verb} {action.unit}</h2>
+          </div>
+          <p className="text-xs mb-5" style={{ color: c.inkSoft }}>Available: {action.max} {action.unit}</p>
 
-function VaultScreen({ address }) {
-  const [mode, setMode] = useState('deposit');
-  const [amount, setAmount] = useState('');
-  const [txHash, setTxHash] = useState(null);
-
-  const { data: totalShares, refetch: refetchShares } = useVaultTotalShares();
-  const { data: totalAssets, refetch: refetchAssets } = useVaultTotalAssets();
-  const { symbol, decimals } = useAssetInfo();
-  const { data: userBalance } = useUserBalance(address);
-  const { data: allowance, refetch: refetchAllowance } = useTokenAllowance(address, VAULT_ADDRESS);
-
-  const parsedAmount = amount ? parseUnits(amount, decimals?.data ?? 18) : 0n;
-  const { data: preview } = usePreviewDeposit(mode === 'deposit' ? parsedAmount : 0n);
-
-  const { writeContract: doDeposit, isPending: depositing } = useVaultDeposit();
-  const { writeContract: doWithdraw, isPending: withdrawing } = useVaultWithdraw();
-  const { writeContract: doApprove, isPending: approving } = useTokenApprove();
-
-  const handleAction = useCallback(async () => {
-    if (!amount || parsedAmount <= 0n) return;
-    setTxHash(null);
-
-    try {
-      if (mode === 'deposit') {
-        if ((allowance ?? 0n) < parsedAmount) {
-          await doApprove({
-            address: WETH,
-            abi: erc20Approve,
-            functionName: 'approve',
-            args: [VAULT_ADDRESS, maxUint256],
-          });
-          await refetchAllowance();
-        }
-        const hash = await doDeposit({
-          address: VAULT_ADDRESS,
-          abi: vaultAbi,
-          functionName: 'deposit',
-          args: [parsedAmount, address],
-        });
-        setTxHash(hash);
-      } else {
-        const hash = await doWithdraw({
-          address: VAULT_ADDRESS,
-          abi: vaultAbi,
-          functionName: 'withdraw',
-          args: [parsedAmount, address, address],
-        });
-        setTxHash(hash);
-      }
-      setAmount('');
-      refetchShares();
-      refetchAssets();
-    } catch (e) {
-      console.error(e);
-    }
-  }, [amount, mode, parsedAmount, allowance, address, doDeposit, doWithdraw, doApprove, refetchShares, refetchAssets, refetchAllowance]);
-
-  const assetSymbol = symbol?.data ?? 'ETH';
-  const assetDecimals = decimals?.data ?? 18;
-  const shares = totalShares ?? 0n;
-  const assets = totalAssets ?? 0n;
-  const sharePrice = shares > 0n ? (assets * BigInt(10 ** Math.min(assetDecimals, 18))) / shares : BigInt(10 ** Math.min(assetDecimals, 18));
-
-  return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <div className="flex gap-4 flex-wrap">
-        <Stat label="Total Assets" value={`${formatUnits(assets, assetDecimals)} ${assetSymbol}`} />
-        <Stat label="Total Shares" value={shares.toString()} />
-        <Stat label="Share Price" value={`${formatUnits(sharePrice, assetDecimals)} ${assetSymbol}`} />
-      </div>
-
-      <div className="card space-y-4">
-        <p className="label">Your encrypted balance (bytes32 handle)</p>
-        <p className="font-mono text-xs text-muted break-all">{userBalance ?? '0x0000000000000000000000000000000000000000000000000000000000000000'}</p>
-      </div>
-
-      <div className="card">
-        <div className="flex border-b border-border mb-6">
-          <button
-            onClick={() => setMode('deposit')}
-            className={`pb-3 px-4 text-sm flex items-center gap-2 transition-colors ${mode === 'deposit' ? 'text-white border-b-2 border-carmine' : 'text-muted hover:text-white'}`}
-          >
-            <ArrowDownLeft size={14} />
-            Deposit
-          </button>
-          <button
-            onClick={() => setMode('withdraw')}
-            className={`pb-3 px-4 text-sm flex items-center gap-2 transition-colors ${mode === 'withdraw' ? 'text-white border-b-2 border-leaf' : 'text-muted hover:text-white'}`}
-          >
-            <ArrowUpRight size={14} />
-            Withdraw
-          </button>
-        </div>
-
-        <div className="space-y-4">
-          <div>
-            <p className="label mb-2">Amount ({assetSymbol})</p>
+          <div className="liquid-glass flex items-center gap-2 rounded-full px-5 py-3.5 mb-5">
             <input
-              type="number"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              placeholder="0.0"
-              className="input"
-              min="0"
-              step="any"
+              placeholder="0.00"
+              inputMode="decimal"
+              autoFocus
+              className="font-num bg-transparent outline-none flex-1 min-w-0 text-base font-semibold"
+              style={{ color: c.ink }}
             />
+            <span className="font-num text-sm" style={{ color: c.inkSoft }}>{action.unit}</span>
           </div>
 
-          {mode === 'deposit' && preview !== undefined && amount && (
-            <p className="text-xs text-muted">
-              You receive ~{formatUnits(preview ?? 0n, assetDecimals)} shares
-            </p>
-          )}
-
-          <div className="flex items-center gap-3 pt-2">
+          <div className="flex gap-2">
+            <button onClick={onClose} className="press flex-1 text-sm font-medium py-2.5 rounded-full" style={{ background: c.inputBg, color: c.inkSoft }}>
+              Cancel
+            </button>
             <button
-              onClick={handleAction}
-              disabled={!amount || parsedAmount <= 0n || depositing || withdrawing || approving}
-              className={mode === 'deposit' ? 'btn-primary flex-1' : 'btn-secondary flex-1'}
+              onClick={submit}
+              disabled={status === "pending" || !amount}
+              className="press flex-1 text-sm font-semibold py-2.5 rounded-full flex items-center justify-center gap-1.5"
+              style={{ background: c.ctaBg, color: c.ctaText }}
             >
-              {depositing || withdrawing || approving ? 'Pending...' : mode === 'deposit' ? 'Deposit' : 'Withdraw'}
+              {status === "pending" && <Loader2 size={14} className="animate-spin" />}
+              {status === "success" && <CheckCircle2 size={14} />}
+              {status === "pending" ? "Confirming" : status === "success" ? "Confirmed" : action.verb}
             </button>
           </div>
-
-          {txHash && (
-            <div className="!p-3 border border-leaf/30 bg-surface/50">
-              <p className="text-xs text-leaf font-mono break-all">{txHash}</p>
-            </div>
-          )}
         </div>
       </div>
     </div>
   );
 }
 
-export default function App() {
-  const { address, isConnected } = useAccount();
+function VaultScreen({ c }) {
+  const [status, setStatus] = useState("healthy");
+  const [openAction, setOpenAction] = useState(null);
+  const isHealthy = status === "healthy";
 
   return (
-    <div className="min-h-screen bg-surface">
-      <header className="border-b border-border">
-        <div className="max-w-4xl mx-auto px-6 h-16 flex items-center justify-between">
-          <h1 className="font-display text-2xl text-carmine tracking-wide">hydan</h1>
-          <ConnectButton />
-        </div>
-      </header>
+    <main className="flex-1 w-full px-6 pt-6 pb-14 max-w-5xl mx-auto">
+      <div className="fade-up mb-1">
+        <h1 className="text-3xl font-extrabold" style={{ color: c.ink, letterSpacing: "-0.02em" }}>Your vault</h1>
+        <p className="text-sm mt-1" style={{ color: c.inkSoft }}>Hover to reveal your numbers.</p>
+      </div>
 
-      <main className="max-w-4xl mx-auto px-6 py-8">
-        {!isConnected ? (
-          <div className="text-center py-24 space-y-4">
-            <TrendingUp size={40} className="text-muted mx-auto" />
-            <p className="text-muted">Connect a wallet to interact with the vault</p>
+      <div className="fade-up px-8 py-8 mt-6 mb-10" style={{ background: c.heroCard, boxShadow: c.cardShadow, animationDelay: "60ms", borderRadius: "56px" }}>
+        <div className="flex items-start justify-between mb-1">
+          <div>
+            <div className="text-base font-semibold" style={{ color: c.ink }}>Health factor</div>
+            <div className="text-xs" style={{ color: c.inkSoft }}>Collateral minus debt exposure</div>
           </div>
-        ) : (
-          <VaultScreen address={address} />
+          <button
+            onClick={() => setStatus(isHealthy ? "risk" : "healthy")}
+            aria-label="Toggle demo status"
+            className="press w-9 h-9 rounded-full flex items-center justify-center"
+            style={{ background: isHealthy ? c.greenSoft : c.carmineSoft, color: isHealthy ? c.green : c.carmine }}
+          >
+            {isHealthy ? <ShieldCheck size={16} /> : <ShieldAlert size={16} />}
+          </button>
+        </div>
+
+        <div className="reveal-group flex flex-col lg:flex-row lg:items-end lg:justify-between lg:gap-8">
+          <div className="reveal-mask mt-3 mb-5 lg:mb-0 lg:mt-3 shrink-0">
+            <span className="font-num-display text-4xl lg:text-5xl" style={{ color: isHealthy ? c.green : c.carmine }} tabIndex={0}>
+              {isHealthy ? "1.84" : "1.03"}
+            </span>
+          </div>
+          <div className="flex gap-3 lg:flex-1 lg:max-w-md">
+            <div className="reveal-mask flex-1 rounded-full px-5 py-3" style={{ background: c.chip }}>
+              <div className="font-medium uppercase tracking-wide mb-0.5" style={{ color: c.inkFaint, fontSize: "10px" }}>Collateral</div>
+              <div className="font-num-display text-base" style={{ color: c.ink }}>4.82 <span className="text-xs font-medium" style={{ color: c.inkSoft }}>ETH</span></div>
+            </div>
+            <div className="reveal-mask flex-1 rounded-full px-5 py-3" style={{ background: c.chip }}>
+              <div className="font-medium uppercase tracking-wide mb-0.5" style={{ color: c.inkFaint, fontSize: "10px" }}>Debt</div>
+              <div className="font-num-display text-base" style={{ color: c.ink }}>6,140 <span className="text-xs font-medium" style={{ color: c.inkSoft }}>USDC</span></div>
+            </div>
+          </div>
+        </div>
+
+        <p className="text-xs mt-4" style={{ color: c.inkFaint }}>
+          Publicly, this vault only ever shows as <span style={{ color: isHealthy ? c.green : c.carmine }}>{isHealthy ? "healthy" : "at risk"}</span>.
+        </p>
+      </div>
+
+      <h2 className="fade-up text-sm font-semibold mb-3" style={{ color: c.ink, animationDelay: "220ms" }}>Manage position</h2>
+      <div className="flex flex-wrap gap-3">
+        {ACTIONS.map((a, i) => (
+          <ActionCard key={a.key} c={c} action={a} onOpen={setOpenAction} delay={`${260 + i * 40}ms`} />
+        ))}
+      </div>
+
+      {openAction && <ActionModal c={c} action={ACTIONS.find((a) => a.key === openAction)} onClose={() => setOpenAction(null)} />}
+    </main>
+  );
+}
+
+/* ---------------------------------------------------------------------
+   Explorer
+--------------------------------------------------------------------- */
+function StatChip({ c, label, value, tone }) {
+  const color = tone === "green" ? c.green : tone === "carmine" ? c.carmine : c.ink;
+  return (
+    <div className="liquid-glass px-5 py-3 flex-1" style={{ borderRadius: "999px" }}>
+      <div className="font-medium uppercase tracking-wide mb-0.5" style={{ color: c.inkFaint, fontSize: "10px" }}>{label}</div>
+      <div className="font-num-display text-lg" style={{ color }}>{value}</div>
+    </div>
+  );
+}
+
+const VAULTS = [
+  { id: "0x4f2c…9a2c", status: "healthy" },
+  { id: "0x81ab…3e7f", status: "healthy" },
+  { id: "0x0c9d…f421", status: "risk" },
+  { id: "0x77ee…10bc", status: "healthy" },
+  { id: "0x2b3a…8801", status: "healthy" },
+  { id: "0xd41f…c290", status: "risk" },
+  { id: "0x9a6c…5512", status: "healthy" },
+  { id: "0x5e0b…aa74", status: "healthy" },
+];
+
+function VaultCard({ c, vault, delay }) {
+  const isHealthy = vault.status === "healthy";
+  return (
+    <div className="fade-up vault-card liquid-glass px-5 py-4 flex items-center justify-between" style={{ borderRadius: "28px", animationDelay: delay }}>
+      <span className="font-num-display text-sm" style={{ color: c.ink }}>{vault.id}</span>
+      <span
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold"
+        style={{ background: isHealthy ? c.greenSoft : c.carmineSoft, color: isHealthy ? c.green : c.carmine }}
+      >
+        {isHealthy ? <ShieldCheck size={12} /> : <ShieldAlert size={12} />}
+        {isHealthy ? "Healthy" : "At risk"}
+      </span>
+    </div>
+  );
+}
+
+function ExplorerScreen({ c }) {
+  const [query, setQuery] = useState("");
+  const healthyCount = VAULTS.filter((v) => v.status === "healthy").length;
+  const riskCount = VAULTS.length - healthyCount;
+  const filtered = VAULTS.filter((v) => v.id.toLowerCase().includes(query.toLowerCase()));
+
+  return (
+    <main className="flex-1 max-w-5xl mx-auto w-full px-6 pt-6 pb-14">
+      <div className="fade-up mb-1">
+        <h1 className="text-3xl font-extrabold" style={{ color: c.ink, letterSpacing: "-0.02em" }}>Public explorer</h1>
+        <p className="text-sm mt-1" style={{ color: c.inkSoft }}>Anyone can see a vault's status. Nobody sees its numbers.</p>
+      </div>
+
+      <div className="fade-up flex gap-3 mt-6 mb-6" style={{ animationDelay: "60ms" }}>
+        <StatChip c={c} label="Vaults" value={VAULTS.length} />
+        <StatChip c={c} label="Healthy" value={healthyCount} tone="green" />
+        <StatChip c={c} label="At risk" value={riskCount} tone="carmine" />
+      </div>
+
+      <div className="fade-up liquid-glass flex items-center gap-2 px-5 py-3 mb-6" style={{ borderRadius: "999px", animationDelay: "100ms" }}>
+        <Search size={15} style={{ color: c.inkFaint }} />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search by vault ID"
+          className="bg-transparent outline-none flex-1 min-w-0 text-sm"
+          style={{ color: c.ink }}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {filtered.map((v, i) => (
+          <VaultCard key={v.id} c={c} vault={v} delay={`${140 + i * 30}ms`} />
+        ))}
+        {filtered.length === 0 && <p className="text-sm text-center py-8" style={{ color: c.inkFaint }}>No vaults match that search.</p>}
+      </div>
+    </main>
+  );
+}
+
+/* ---------------------------------------------------------------------
+   Automation
+--------------------------------------------------------------------- */
+function AutomationSwitch({ c, on, onToggle }) {
+  return (
+    <button
+      onClick={onToggle}
+      aria-label="Toggle automation"
+      className="press toggle-track relative w-16 h-9 rounded-full flex items-center px-1"
+      style={{ background: on ? c.green : c.chip }}
+    >
+      <span className="toggle-knob w-7 h-7 rounded-full" style={{ background: c.surface, transform: on ? "translateX(28px)" : "translateX(0)" }} />
+    </button>
+  );
+}
+
+function AutomationScreen({ c }) {
+  const [on, setOn] = useState(true);
+  const [threshold, setThreshold] = useState("1.20");
+  const currentHF = "1.84";
+
+  return (
+    <main className="flex-1 max-w-5xl mx-auto w-full px-6 pt-6 pb-14">
+      <div className="fade-up mb-1">
+        <h1 className="text-3xl font-extrabold" style={{ color: c.ink, letterSpacing: "-0.02em" }}>Automation</h1>
+        <p className="text-sm mt-1" style={{ color: c.inkSoft }}>Repay automatically before you're at risk.</p>
+      </div>
+
+      <div className="fade-up mt-6 mb-6 px-8 py-8" style={{ background: c.heroCard, boxShadow: c.cardShadow, borderRadius: "48px", animationDelay: "60ms" }}>
+        <div className="flex items-start justify-between mb-1">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: on ? c.greenSoft : c.chip, color: on ? c.green : c.inkFaint }}>
+                <Zap size={14} />
+              </span>
+              <span className="text-base font-semibold" style={{ color: c.ink }}>Auto-repay</span>
+            </div>
+            <div className="text-xs" style={{ color: c.inkSoft }}>Repays USDC from idle balance if triggered</div>
+          </div>
+          <AutomationSwitch c={c} on={on} onToggle={() => setOn(!on)} />
+        </div>
+
+        <div className="flex items-center gap-2 mt-5 mb-6">
+          <span className="w-2 h-2 rounded-full" style={{ background: on ? c.green : c.inkFaint }} />
+          <span className="font-num-display text-lg" style={{ color: on ? c.green : c.inkFaint }}>{on ? "Active" : "Inactive"}</span>
+          <span className="text-xs" style={{ color: c.inkSoft }}>— current health factor {currentHF}</span>
+        </div>
+
+        <div className="liquid-glass flex items-center justify-between px-5 py-4" style={{ borderRadius: "999px" }}>
+          <div>
+            <div className="font-medium uppercase tracking-wide mb-0.5" style={{ color: c.inkFaint, fontSize: "10px" }}>Trigger below</div>
+            <div className="text-xs" style={{ color: c.inkSoft }}>Health factor threshold</div>
+          </div>
+          <div className="flex items-baseline gap-1.5">
+            <input
+              value={threshold}
+              onChange={(e) => setThreshold(e.target.value)}
+              inputMode="decimal"
+              className="font-num-display bg-transparent outline-none text-right"
+              style={{ color: c.ink, fontSize: "1.5rem", width: "4.5ch", minWidth: "4.5ch" }}
+            />
+            <span className="text-xs" style={{ color: c.inkSoft }}>HF</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="fade-up liquid-glass flex items-center gap-3 px-6 py-4" style={{ borderRadius: "28px", animationDelay: "120ms" }}>
+        <ShieldCheck size={16} style={{ color: c.inkSoft }} />
+        <p className="text-xs" style={{ color: c.inkSoft }}>
+          The trigger check runs inside Nox on your encrypted position. Nobody, including hýdan, sees the comparison happen.
+        </p>
+      </div>
+    </main>
+  );
+}
+
+/* ---------------------------------------------------------------------
+   App shell
+--------------------------------------------------------------------- */
+export default function HydanApp() {
+  useGoogleFonts();
+  const [theme, setTheme] = useState("dark");
+  const [connected, setConnected] = useState(false);
+  const [screen, setScreen] = useState("vault");
+  const c = PALETTES[theme];
+
+  function handleConnect() {
+    setConnected(true);
+    setScreen("vault");
+  }
+
+  return (
+    <div className="hydan-root min-h-screen relative transition-colors duration-300" style={{ background: c.bg, fontFamily: "'Manrope', sans-serif" }}>
+      <GlobalStyle c={c} />
+      <DotGrid c={c} />
+      <div className="relative z-10 flex flex-col min-h-screen">
+        <NavBar
+          c={c}
+          theme={theme}
+          onToggle={() => setTheme(theme === "light" ? "dark" : "light")}
+          connected={connected}
+          screen={screen}
+          onNavigate={setScreen}
+        />
+
+        {!connected && <LandingScreen c={c} onConnect={handleConnect} />}
+        {connected && screen === "vault" && <VaultScreen c={c} />}
+        {connected && screen === "explorer" && <ExplorerScreen c={c} />}
+        {connected && screen === "automation" && <AutomationScreen c={c} />}
+
+        {!connected && <LandingFooter c={c} />}
+        {connected && (
+          <footer className="px-6 py-6 text-center">
+            <span className="font-num" style={{ color: c.inkFaint, fontSize: "11px" }}>Built on Nox × Aave — Sepolia testnet</span>
+          </footer>
         )}
-      </main>
+      </div>
     </div>
   );
 }
