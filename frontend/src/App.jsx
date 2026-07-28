@@ -1,4 +1,8 @@
 import { useState, useEffect } from "react";
+import { useAccount, useConnect, useDisconnect } from "wagmi";
+import { injected } from "wagmi/connectors";
+import { parseEther } from "viem";
+import { useWriteContract, useReadContract } from "wagmi";
 import {
   Moon,
   Sun,
@@ -14,21 +18,33 @@ import {
   Search,
   Zap,
 } from "lucide-react";
+import {
+  useVaultAddress,
+  useVaultTotalAssets,
+  useVaultHealthStatus,
+  useUserWethBalance,
+  useVaultAaveData,
+} from "./hooks.js";
+import vaultAbi from "./abi/HydanVault.json";
+
+const WETH = "0xC558DBdd856501FCd9aaF1E62eae57A9F0629a3c";
+
+const erc20Abi = [
+  { inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], name: "approve", outputs: [{ type: "bool" }], stateMutability: "nonpayable", type: "function" },
+  { inputs: [{ name: "owner", type: "address" }, { name: "spender", type: "address" }], name: "allowance", outputs: [{ type: "uint256" }], stateMutability: "view", type: "function" },
+];
 
 function useGoogleFonts() {
   useEffect(() => {
     const link = document.createElement("link");
     link.rel = "stylesheet";
     link.href =
-      "https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@700;800&family=Bagel+Fat+One&family=Manrope:wght@400;500;600;700;800&display=swap";
+      "https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@700;800&family=Pacifico&family=Bagel+Fat+One&family=Manrope:wght@400;500;600;700;800&display=swap";
     document.head.appendChild(link);
     return () => document.head.removeChild(link);
   }, []);
 }
 
-/* ---------------------------------------------------------------------
-   Locked tokens — shared across every screen.
---------------------------------------------------------------------- */
 const PALETTES = {
   light: {
     bg: "#E4EADC",
@@ -94,7 +110,7 @@ function GlobalStyle({ c }) {
       html::-webkit-scrollbar-track { background: transparent; }
       html::-webkit-scrollbar-thumb { background: ${c.chip}; border-radius: 999px; }
       html::-webkit-scrollbar-thumb:hover { background: ${c.green}; }
-      .font-wordmark { font-family: 'Schibsted Grotesk', sans-serif; font-weight: 800; letter-spacing: -0.02em; }
+      .font-wordmark { font-family: 'Pacifico', cursive; }
       .font-num { font-variant-numeric: tabular-nums; }
       .font-num-display { font-family: 'Bagel Fat One', cursive; font-variant-numeric: tabular-nums; }
       .press { transition: transform 150ms var(--ease-out), background-color 180ms ease, opacity 180ms ease; }
@@ -107,7 +123,6 @@ function GlobalStyle({ c }) {
         background: ${c.inputBg};
         backdrop-filter: blur(14px);
         -webkit-backdrop-filter: blur(14px);
-        border: 1px solid rgba(255,255,255,0.10);
         box-shadow: inset 0 1px 1px rgba(255,255,255,0.08), ${c.cardShadow};
       }
       .wordmark-solid {
@@ -180,12 +195,7 @@ function ThemeToggle({ c, theme, onToggle }) {
   );
 }
 
-/* ---------------------------------------------------------------------
-   NavBar — logo always left. When connected, screen-switcher pills sit
-   in the middle and the wallet address shows on the right; when not
-   connected, it's just theme + GitHub.
---------------------------------------------------------------------- */
-function NavBar({ c, theme, onToggle, connected, screen, onNavigate }) {
+function NavBar({ c, theme, onToggle, address, screen, onNavigate, onDisconnect }) {
   const links = [
     { key: "vault", label: "Vault" },
     { key: "explorer", label: "Explorer" },
@@ -204,15 +214,24 @@ function NavBar({ c, theme, onToggle, connected, screen, onNavigate }) {
           className="flex items-center gap-2 rounded-full pl-3 pr-1.5 py-1.5"
           style={{ background: c.pill, boxShadow: c.cardShadow, backdropFilter: "blur(10px)" }}
         >
-          {connected && <span className="font-num text-xs" style={{ color: c.inkSoft }}>0x4f...9a2c</span>}
+          {address && (
+            <button
+              onClick={onDisconnect}
+              className="font-num text-xs hover:opacity-70 transition-opacity"
+              style={{ color: c.inkSoft }}
+              title="Disconnect"
+            >
+              {address.slice(0, 6)}...{address.slice(-4)}
+            </button>
+          )}
           <ThemeToggle c={c} theme={theme} onToggle={onToggle} />
-          <button className="press w-8 h-8 rounded-full flex items-center justify-center" style={{ background: c.surface, color: c.ink, boxShadow: c.cardShadow }}>
+          <a href="https://github.com/Shaydez-Defi/hydan" target="_blank" rel="noopener noreferrer" className="press w-8 h-8 rounded-full flex items-center justify-center" style={{ background: c.surface, color: c.ink, boxShadow: c.cardShadow }}>
             <Github size={14} />
-          </button>
+          </a>
         </div>
       </div>
 
-      {connected && (
+      {address && (
         <div className="flex justify-center mt-3">
           <div
             className="relative flex items-center gap-1 rounded-full p-1.5"
@@ -248,10 +267,8 @@ function NavBar({ c, theme, onToggle, connected, screen, onNavigate }) {
   );
 }
 
-/* ---------------------------------------------------------------------
-   Landing
---------------------------------------------------------------------- */
-function ProofCard({ c }) {
+function ProofCard({ c, healthStatusHandle }) {
+  const handleStr = healthStatusHandle ? `${healthStatusHandle.slice(0, 18)}...` : null;
   return (
     <div
       className="fade-up liquid-glass px-7 py-6 max-w-sm w-full"
@@ -265,11 +282,8 @@ function ProofCard({ c }) {
         <div className="font-semibold uppercase tracking-wide mb-2" style={{ color: c.inkFaint, fontSize: "10px" }}>
           Aave · public record
         </div>
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="h-3.5 rounded-sm" style={{ width: "48px", background: c.ink, opacity: 0.85 }} />
-          <span className="h-3.5 rounded-sm" style={{ width: "34px", background: c.ink, opacity: 0.85 }} />
-          <span className="h-3.5 rounded-sm" style={{ width: "58px", background: c.ink, opacity: 0.85 }} />
-          <span className="h-3.5 rounded-sm" style={{ width: "26px", background: c.ink, opacity: 0.85 }} />
+        <div className="font-num text-xs font-mono" style={{ color: c.inkSoft, wordBreak: "break-all" }}>
+          {handleStr || "—"}
         </div>
       </div>
 
@@ -299,17 +313,17 @@ function LandingFooter({ c }) {
           <div>
             <h4 className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: c.inkFaint }}>Product</h4>
             <ul className="space-y-2 text-sm" style={{ color: c.inkSoft }}>
-              <li>Vault</li>
-              <li>Explorer</li>
-              <li>Automation</li>
+              <li><a href="#" style={{ color: "inherit" }}>Vault</a></li>
+              <li><a href="#" style={{ color: "inherit" }}>Explorer</a></li>
+              <li><a href="#" style={{ color: "inherit" }}>Automation</a></li>
             </ul>
           </div>
           <div>
             <h4 className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: c.inkFaint }}>Resources</h4>
             <ul className="space-y-2 text-sm" style={{ color: c.inkSoft }}>
-              <li>GitHub</li>
-              <li>Docs</li>
-              <li>iExec WTF Hackathon</li>
+              <li><a href="https://github.com/Shaydez-Defi/hydan" target="_blank" rel="noopener noreferrer" style={{ color: "inherit" }}>GitHub</a></li>
+              <li><a href="https://github.com/Shaydez-Defi/hydan#readme" target="_blank" rel="noopener noreferrer" style={{ color: "inherit" }}>Docs</a></li>
+              <li><a href="https://www.iex.ec" target="_blank" rel="noopener noreferrer" style={{ color: "inherit" }}>iExec WTF Hackathon</a></li>
             </ul>
           </div>
         </div>
@@ -329,7 +343,7 @@ function LandingFooter({ c }) {
   );
 }
 
-function LandingScreen({ c, onConnect }) {
+function LandingScreen({ c, onConnect, healthStatusHandle }) {
   return (
     <main className="relative flex flex-col justify-center px-6 md:px-12 py-16 max-w-5xl mx-auto w-full" style={{ minHeight: "calc(100vh - 96px)" }}>
       <div className="relative z-10 flex flex-col lg:flex-row lg:items-center gap-10 lg:gap-16">
@@ -348,22 +362,37 @@ function LandingScreen({ c, onConnect }) {
           </div>
         </div>
         <div className="lg:flex-1 lg:flex lg:justify-end">
-          <ProofCard c={c} />
+          <ProofCard c={c} healthStatusHandle={healthStatusHandle} />
         </div>
       </div>
     </main>
   );
 }
 
-/* ---------------------------------------------------------------------
-   Vault
---------------------------------------------------------------------- */
-const ACTIONS = [
-  { key: "deposit", icon: Landmark, label: "Deposit", unit: "ETH", verb: "Deposit", tone: "green", helper: "Add collateral", max: "4.82", hfAfter: "2.31" },
-  { key: "borrow", icon: CircleDollarSign, label: "Borrow", unit: "USDC", verb: "Borrow", tone: "carmine", helper: "Draw more debt", max: "2,310", hfAfter: "1.42" },
-  { key: "repay", icon: ShieldCheck, label: "Repay", unit: "USDC", verb: "Repay", tone: "green", helper: "Pay down debt", max: "6,140", hfAfter: "2.68" },
-  { key: "withdraw", icon: Unlock, label: "Withdraw", unit: "ETH", verb: "Withdraw", tone: "carmine", helper: "Free collateral", max: "1.10", hfAfter: "1.51" },
-];
+function buildActions(aaveData, userWethBalance, totalAssetsRaw) {
+  const eth = (wei) => {
+    if (!wei || wei === 0n) return "0";
+    const num = Number(wei) / 1e18;
+    if (num >= 10000) return num.toLocaleString(undefined, { maximumFractionDigits: 0 });
+    return num.toFixed(num < 1 ? 4 : 2);
+  };
+  const base = (val) => {
+    if (!val || val === 0n) return "0";
+    const num = Number(val) / 1e8;
+    if (num >= 10000) return num.toLocaleString(undefined, { maximumFractionDigits: 0 });
+    return num.toFixed(num < 1 ? 4 : 2);
+  };
+  const depositMax = userWethBalance || 0n;
+  const borrowMax = aaveData ? aaveData[2] : 0n;
+  const repayMax = aaveData ? aaveData[1] : 0n;
+  const withdrawMax = totalAssetsRaw || 0n;
+  return [
+    { key: "deposit", icon: Landmark, label: "Deposit", unit: "ETH", verb: "Deposit", tone: "green", helper: "Add collateral", max: eth(depositMax), hfAfter: "—" },
+    { key: "borrow", icon: CircleDollarSign, label: "Borrow", unit: "ETH", verb: "Borrow", tone: "carmine", helper: "Draw more debt", max: base(borrowMax), hfAfter: "—" },
+    { key: "repay", icon: ShieldCheck, label: "Repay", unit: "ETH", verb: "Repay", tone: "green", helper: "Pay down debt", max: base(repayMax), hfAfter: "—" },
+    { key: "withdraw", icon: Unlock, label: "Withdraw", unit: "ETH", verb: "Withdraw", tone: "carmine", helper: "Free collateral", max: eth(withdrawMax), hfAfter: "—" },
+  ];
+}
 
 function ActionCard({ c, action, onOpen, delay }) {
   const Icon = action.icon;
@@ -382,15 +411,58 @@ function ActionCard({ c, action, onOpen, delay }) {
   );
 }
 
-function ActionModal({ c, action, onClose }) {
+function ActionModal({ c, action, onClose, address, vaultAddress }) {
   const [amount, setAmount] = useState("");
   const [status, setStatus] = useState(null);
+  const { writeContractAsync } = useWriteContract();
+  const { data: allowance } = useReadContract({
+    address: WETH, abi: erc20Abi, functionName: "allowance",
+    args: [address, vaultAddress],
+    query: { enabled: !!address && !!vaultAddress },
+  });
+
   if (!action) return null;
   const Icon = action.icon;
 
-  function submit() {
+  const weiAmount = (() => {
+    try { return parseEther(amount || "0"); } catch { return 0n; }
+  })();
+
+  async function submit() {
+    if (status === "pending" || !amount || weiAmount <= 0n) return;
     setStatus("pending");
-    setTimeout(() => setStatus("success"), 1300);
+    try {
+      if (action.key === "deposit") {
+        if (allowance < weiAmount) {
+          await writeContractAsync({
+            address: WETH, abi: erc20Abi, functionName: "approve",
+            args: [vaultAddress, weiAmount],
+          });
+        }
+        await writeContractAsync({
+          address: vaultAddress, abi: vaultAbi, functionName: "deposit",
+          args: [weiAmount, address],
+        });
+      } else if (action.key === "borrow") {
+        await writeContractAsync({
+          address: vaultAddress, abi: vaultAbi, functionName: "borrow",
+          args: [weiAmount, 2, 0, address],
+        });
+      } else if (action.key === "repay") {
+        await writeContractAsync({
+          address: vaultAddress, abi: vaultAbi, functionName: "repay",
+          args: [weiAmount, 2, address],
+        });
+      } else if (action.key === "withdraw") {
+        await writeContractAsync({
+          address: vaultAddress, abi: vaultAbi, functionName: "withdraw",
+          args: [weiAmount, address, address],
+        });
+      }
+      setStatus("success");
+    } catch {
+      setStatus("error");
+    }
   }
 
   return (
@@ -429,6 +501,7 @@ function ActionModal({ c, action, onClose }) {
               {status === "pending" && <Loader2 size={14} className="animate-spin" />}
               {status === "success" && <CheckCircle2 size={14} />}
               {status === "pending" ? "Confirming" : status === "success" ? "Confirmed" : action.verb}
+              {status === "error" && " Error"}
             </button>
           </div>
         </div>
@@ -437,10 +510,33 @@ function ActionModal({ c, action, onClose }) {
   );
 }
 
-function VaultScreen({ c }) {
-  const [status, setStatus] = useState("healthy");
+function VaultScreen({ c, aaveData, totalAssetsRaw, userWethBalance, address, vaultAddress }) {
   const [openAction, setOpenAction] = useState(null);
-  const isHealthy = status === "healthy";
+
+  const maxUintHalf = 2n ** 255n;
+  const hf = aaveData ? aaveData[5] : null;
+  const isHealthy = !hf || hf > 10n ** 27n;
+
+  const fmtHf = () => {
+    if (!hf) return "—";
+    if (hf >= maxUintHalf) return "∞";
+    const num = Number(hf) / 1e27;
+    return num.toFixed(2);
+  };
+  const fmtEth = (wei) => {
+    if (!wei || wei === 0n) return "0";
+    const num = Number(wei) / 1e18;
+    return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+  const fmtBase = (val) => {
+    if (!val || val === 0n) return "0";
+    const num = Number(val) / 1e8;
+    return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  const collateral = totalAssetsRaw || 0n;
+  const debt = aaveData ? aaveData[1] : 0n;
+  const actions = buildActions(aaveData, userWethBalance, totalAssetsRaw);
 
   return (
     <main className="flex-1 w-full px-6 pt-6 pb-14 max-w-5xl mx-auto">
@@ -455,30 +551,25 @@ function VaultScreen({ c }) {
             <div className="text-base font-semibold" style={{ color: c.ink }}>Health factor</div>
             <div className="text-xs" style={{ color: c.inkSoft }}>Collateral minus debt exposure</div>
           </div>
-          <button
-            onClick={() => setStatus(isHealthy ? "risk" : "healthy")}
-            aria-label="Toggle demo status"
-            className="press w-9 h-9 rounded-full flex items-center justify-center"
-            style={{ background: isHealthy ? c.greenSoft : c.carmineSoft, color: isHealthy ? c.green : c.carmine }}
-          >
+          <span className="inline-flex items-center justify-center w-9 h-9 rounded-full" style={{ background: isHealthy ? c.greenSoft : c.carmineSoft, color: isHealthy ? c.green : c.carmine }}>
             {isHealthy ? <ShieldCheck size={16} /> : <ShieldAlert size={16} />}
-          </button>
+          </span>
         </div>
 
         <div className="reveal-group flex flex-col lg:flex-row lg:items-end lg:justify-between lg:gap-8">
           <div className="reveal-mask mt-3 mb-5 lg:mb-0 lg:mt-3 shrink-0">
             <span className="font-num-display text-4xl lg:text-5xl" style={{ color: isHealthy ? c.green : c.carmine }} tabIndex={0}>
-              {isHealthy ? "1.84" : "1.03"}
+              {fmtHf()}
             </span>
           </div>
           <div className="flex gap-3 lg:flex-1 lg:max-w-md">
             <div className="reveal-mask flex-1 rounded-full px-5 py-3" style={{ background: c.chip }}>
               <div className="font-medium uppercase tracking-wide mb-0.5" style={{ color: c.inkFaint, fontSize: "10px" }}>Collateral</div>
-              <div className="font-num-display text-base" style={{ color: c.ink }}>4.82 <span className="text-xs font-medium" style={{ color: c.inkSoft }}>ETH</span></div>
+              <div className="font-num-display text-base" style={{ color: c.ink }}>{fmtEth(collateral)} <span className="text-xs font-medium" style={{ color: c.inkSoft }}>ETH</span></div>
             </div>
             <div className="reveal-mask flex-1 rounded-full px-5 py-3" style={{ background: c.chip }}>
               <div className="font-medium uppercase tracking-wide mb-0.5" style={{ color: c.inkFaint, fontSize: "10px" }}>Debt</div>
-              <div className="font-num-display text-base" style={{ color: c.ink }}>6,140 <span className="text-xs font-medium" style={{ color: c.inkSoft }}>USDC</span></div>
+              <div className="font-num-display text-base" style={{ color: c.ink }}>{fmtBase(debt)} <span className="text-xs font-medium" style={{ color: c.inkSoft }}>ETH</span></div>
             </div>
           </div>
         </div>
@@ -490,19 +581,16 @@ function VaultScreen({ c }) {
 
       <h2 className="fade-up text-sm font-semibold mb-3" style={{ color: c.ink, animationDelay: "220ms" }}>Manage position</h2>
       <div className="flex flex-wrap gap-3">
-        {ACTIONS.map((a, i) => (
+        {actions.map((a, i) => (
           <ActionCard key={a.key} c={c} action={a} onOpen={setOpenAction} delay={`${260 + i * 40}ms`} />
         ))}
       </div>
 
-      {openAction && <ActionModal c={c} action={ACTIONS.find((a) => a.key === openAction)} onClose={() => setOpenAction(null)} />}
+      {openAction && <ActionModal c={c} action={actions.find((a) => a.key === openAction)} onClose={() => setOpenAction(null)} address={address} vaultAddress={vaultAddress} />}
     </main>
   );
 }
 
-/* ---------------------------------------------------------------------
-   Explorer
---------------------------------------------------------------------- */
 function StatChip({ c, label, value, tone }) {
   const color = tone === "green" ? c.green : tone === "carmine" ? c.carmine : c.ink;
   return (
@@ -512,17 +600,6 @@ function StatChip({ c, label, value, tone }) {
     </div>
   );
 }
-
-const VAULTS = [
-  { id: "0x4f2c…9a2c", status: "healthy" },
-  { id: "0x81ab…3e7f", status: "healthy" },
-  { id: "0x0c9d…f421", status: "risk" },
-  { id: "0x77ee…10bc", status: "healthy" },
-  { id: "0x2b3a…8801", status: "healthy" },
-  { id: "0xd41f…c290", status: "risk" },
-  { id: "0x9a6c…5512", status: "healthy" },
-  { id: "0x5e0b…aa74", status: "healthy" },
-];
 
 function VaultCard({ c, vault, delay }) {
   const isHealthy = vault.status === "healthy";
@@ -540,8 +617,16 @@ function VaultCard({ c, vault, delay }) {
   );
 }
 
-function ExplorerScreen({ c }) {
+function ExplorerScreen({ c, aaveData, vaultAddress }) {
   const [query, setQuery] = useState("");
+
+  const hf = aaveData ? aaveData[5] : null;
+  const isHealthy = !hf || hf > 10n ** 27n;
+  const vault = {
+    id: vaultAddress ? `${vaultAddress.slice(0, 6)}...${vaultAddress.slice(-4)}` : "—",
+    status: isHealthy ? "healthy" : "risk",
+  };
+  const VAULTS = [vault];
   const healthyCount = VAULTS.filter((v) => v.status === "healthy").length;
   const riskCount = VAULTS.length - healthyCount;
   const filtered = VAULTS.filter((v) => v.id.toLowerCase().includes(query.toLowerCase()));
@@ -580,9 +665,6 @@ function ExplorerScreen({ c }) {
   );
 }
 
-/* ---------------------------------------------------------------------
-   Automation
---------------------------------------------------------------------- */
 function AutomationSwitch({ c, on, onToggle }) {
   return (
     <button
@@ -596,10 +678,17 @@ function AutomationSwitch({ c, on, onToggle }) {
   );
 }
 
-function AutomationScreen({ c }) {
+function AutomationScreen({ c, aaveData }) {
   const [on, setOn] = useState(true);
   const [threshold, setThreshold] = useState("1.20");
-  const currentHF = "1.84";
+
+  const hf = aaveData ? aaveData[5] : null;
+  const fmtHf = () => {
+    if (!hf) return "—";
+    if (hf >= 2n ** 255n) return "∞";
+    return (Number(hf) / 1e27).toFixed(2);
+  };
+  const currentHF = fmtHf();
 
   return (
     <main className="flex-1 max-w-5xl mx-auto w-full px-6 pt-6 pb-14">
@@ -656,19 +745,23 @@ function AutomationScreen({ c }) {
   );
 }
 
-/* ---------------------------------------------------------------------
-   App shell
---------------------------------------------------------------------- */
 export default function HydanApp() {
   useGoogleFonts();
   const [theme, setTheme] = useState("dark");
-  const [connected, setConnected] = useState(false);
   const [screen, setScreen] = useState("vault");
   const c = PALETTES[theme];
+  const { address } = useAccount();
+  const { connect } = useConnect();
+  const { disconnect } = useDisconnect();
+
+  const vaultAddress = useVaultAddress();
+  const { data: totalAssetsRaw } = useVaultTotalAssets();
+  const { data: healthStatus } = useVaultHealthStatus();
+  const { data: userWethBalance } = useUserWethBalance(address);
+  const { data: aaveData } = useVaultAaveData(vaultAddress);
 
   function handleConnect() {
-    setConnected(true);
-    setScreen("vault");
+    connect({ connector: injected() });
   }
 
   return (
@@ -680,18 +773,19 @@ export default function HydanApp() {
           c={c}
           theme={theme}
           onToggle={() => setTheme(theme === "light" ? "dark" : "light")}
-          connected={connected}
+          address={address}
           screen={screen}
           onNavigate={setScreen}
+          onDisconnect={() => { disconnect(); setScreen("vault"); }}
         />
 
-        {!connected && <LandingScreen c={c} onConnect={handleConnect} />}
-        {connected && screen === "vault" && <VaultScreen c={c} />}
-        {connected && screen === "explorer" && <ExplorerScreen c={c} />}
-        {connected && screen === "automation" && <AutomationScreen c={c} />}
+        {!address && <LandingScreen c={c} onConnect={handleConnect} healthStatusHandle={healthStatus} />}
+        {address && screen === "vault" && <VaultScreen c={c} aaveData={aaveData} totalAssetsRaw={totalAssetsRaw} userWethBalance={userWethBalance} address={address} vaultAddress={vaultAddress} />}
+        {address && screen === "explorer" && <ExplorerScreen c={c} aaveData={aaveData} vaultAddress={vaultAddress} />}
+        {address && screen === "automation" && <AutomationScreen c={c} aaveData={aaveData} />}
 
-        {!connected && <LandingFooter c={c} />}
-        {connected && (
+        {!address && <LandingFooter c={c} />}
+        {address && (
           <footer className="px-6 py-6 text-center">
             <span className="font-num" style={{ color: c.inkFaint, fontSize: "11px" }}>Built on Nox × Aave — Sepolia testnet</span>
           </footer>
