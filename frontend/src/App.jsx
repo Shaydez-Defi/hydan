@@ -446,7 +446,7 @@ function ActionModal({ c, action, onClose, address, vaultAddress }) {
         await writeContractAsync({
           address: vaultAddress, abi: vaultAbi, functionName: "deposit",
           args: [weiAmount, address],
-          gas: 300000n,
+          gas: 800000n,
         });
       } else if (action.key === "borrow") {
         await writeContractAsync({
