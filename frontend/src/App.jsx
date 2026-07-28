@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
-import { injected } from "wagmi/connectors";
 import { parseEther } from "viem";
 import { useWriteContract, useReadContract } from "wagmi";
 import {
@@ -313,8 +312,11 @@ function LandingFooter({ c }) {
           <div>
             <h4 className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: c.inkFaint }}>Product</h4>
             <ul className="space-y-2 text-sm" style={{ color: c.inkSoft }}>
+              {/* TODO: No <section id="vault"> element exists yet. Replace href="#vault" anchor once it does. */}
               <li><a href="#" style={{ color: "inherit" }}>Vault</a></li>
+              {/* TODO: No <section id="explorer"> element exists yet. Replace href="#explorer" anchor once it does. */}
               <li><a href="#" style={{ color: "inherit" }}>Explorer</a></li>
+              {/* TODO: No <section id="automation"> element exists yet. Replace href="#automation" anchor once it does. */}
               <li><a href="#" style={{ color: "inherit" }}>Automation</a></li>
             </ul>
           </div>
@@ -323,6 +325,7 @@ function LandingFooter({ c }) {
             <ul className="space-y-2 text-sm" style={{ color: c.inkSoft }}>
               <li><a href="https://github.com/Shaydez-Defi/hydan" target="_blank" rel="noopener noreferrer" style={{ color: "inherit" }}>GitHub</a></li>
               <li><a href="https://github.com/Shaydez-Defi/hydan#readme" target="_blank" rel="noopener noreferrer" style={{ color: "inherit" }}>Docs</a></li>
+              {/* TODO: swap href for the actual iExec WTF Hackathon submission page URL */}
               <li><a href="https://www.iex.ec" target="_blank" rel="noopener noreferrer" style={{ color: "inherit" }}>iExec WTF Hackathon</a></li>
             </ul>
           </div>
@@ -751,7 +754,7 @@ export default function HydanApp() {
   const [screen, setScreen] = useState("vault");
   const c = PALETTES[theme];
   const { address } = useAccount();
-  const { connect } = useConnect();
+  const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
 
   const vaultAddress = useVaultAddress();
@@ -761,7 +764,7 @@ export default function HydanApp() {
   const { data: aaveData } = useVaultAaveData(vaultAddress);
 
   function handleConnect() {
-    connect({ connector: injected() });
+    connect({ connector: connectors[0] });
   }
 
   return (
