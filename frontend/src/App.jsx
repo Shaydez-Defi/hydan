@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { parseEther } from "viem";
-import { useWriteContract, useReadContract } from "wagmi";
+import { useWriteContract, useReadContract, usePublicClient } from "wagmi";
 import {
   Moon,
   Sun,
@@ -437,10 +437,11 @@ function ActionModal({ c, action, onClose, address, vaultAddress }) {
     try {
       if (action.key === "deposit") {
         if (allowance < weiAmount) {
-          await writeContractAsync({
+          const approveHash = await writeContractAsync({
             address: WETH, abi: erc20Abi, functionName: "approve",
             args: [vaultAddress, weiAmount],
           });
+          await publicClient.waitForTransactionReceipt({ hash: approveHash });
         }
         await writeContractAsync({
           address: vaultAddress, abi: vaultAbi, functionName: "deposit",
@@ -754,6 +755,7 @@ export default function HydanApp() {
   const [screen, setScreen] = useState("vault");
   const c = PALETTES[theme];
   const { address } = useAccount();
+  const publicClient = usePublicClient();
   const { connect, connectors } = useConnect();
   const { disconnect } = useDisconnect();
 
