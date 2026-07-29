@@ -31,6 +31,11 @@ const WETH = "0xC558DBdd856501FCd9aaF1E62eae57A9F0629a3c";
 const erc20Abi = [
   { inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], name: "approve", outputs: [{ type: "bool" }], stateMutability: "nonpayable", type: "function" },
   { inputs: [{ name: "owner", type: "address" }, { name: "spender", type: "address" }], name: "allowance", outputs: [{ type: "uint256" }], stateMutability: "view", type: "function" },
+  { inputs: [{ name: "account", type: "address" }], name: "balanceOf", outputs: [{ type: "uint256" }], stateMutability: "view", type: "function" },
+];
+
+const wethAbi = [
+  { name: "deposit", type: "function", stateMutability: "payable", inputs: [], outputs: [] },
 ];
 
 function useGoogleFonts() {
@@ -418,10 +423,16 @@ function ActionModal({ c, action, onClose, address, vaultAddress }) {
   const [amount, setAmount] = useState("");
   const [status, setStatus] = useState(null);
   const { writeContractAsync } = useWriteContract();
+  const publicClient = usePublicClient();
   const { data: allowance } = useReadContract({
     address: WETH, abi: erc20Abi, functionName: "allowance",
     args: [address, vaultAddress],
     query: { enabled: !!address && !!vaultAddress },
+  });
+  const { data: wethBalance } = useReadContract({
+    address: WETH, abi: erc20Abi, functionName: "balanceOf",
+    args: [address],
+    query: { enabled: !!address },
   });
 
   if (!action) return null;
@@ -432,17 +443,30 @@ function ActionModal({ c, action, onClose, address, vaultAddress }) {
   })();
 
   async function submit() {
-    if (status === "pending" || !amount || weiAmount <= 0n) return;
-    setStatus("pending");
+    if (status === "pending" || status === "wrapping" || status === "approving" || !amount || weiAmount <= 0n) return;
+    if (action.key !== "deposit") {
+      setStatus("pending");
+    }
     try {
       if (action.key === "deposit") {
+        if (wethBalance < weiAmount) {
+          const shortfall = weiAmount - wethBalance;
+          setStatus("wrapping");
+          const wrapHash = await writeContractAsync({
+            address: WETH, abi: wethAbi, functionName: "deposit",
+            args: [], value: shortfall,
+          });
+          await publicClient.waitForTransactionReceipt({ hash: wrapHash });
+        }
         if (allowance < weiAmount) {
+          setStatus("approving");
           const approveHash = await writeContractAsync({
             address: WETH, abi: erc20Abi, functionName: "approve",
             args: [vaultAddress, weiAmount],
           });
           await publicClient.waitForTransactionReceipt({ hash: approveHash });
         }
+        setStatus("pending");
         await writeContractAsync({
           address: vaultAddress, abi: vaultAbi, functionName: "deposit",
           args: [weiAmount, address],
@@ -500,14 +524,14 @@ function ActionModal({ c, action, onClose, address, vaultAddress }) {
             </button>
             <button
               onClick={submit}
-              disabled={status === "pending" || !amount}
+              disabled={(status === "pending" || status === "wrapping" || status === "approving") || !amount}
               className="press flex-1 text-sm font-semibold py-2.5 rounded-full flex items-center justify-center gap-1.5"
               style={{ background: c.ctaBg, color: c.ctaText }}
             >
-              {status === "pending" && <Loader2 size={14} className="animate-spin" />}
+              {(status === "pending" || status === "wrapping" || status === "approving") && <Loader2 size={14} className="animate-spin" />}
               {status === "success" && <CheckCircle2 size={14} />}
-              {status === "pending" ? "Confirming" : status === "success" ? "Confirmed" : action.verb}
-              {status === "error" && " Error"}
+              {status === "wrapping" ? "Wrapping ETH" : status === "approving" ? "Approving" : status === "pending" ? "Depositing" : status === "success" ? "Deposited" : action.verb}
+              {status === "error" && " Retry"}
             </button>
           </div>
         </div>
