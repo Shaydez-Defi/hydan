@@ -17,7 +17,7 @@ const LABELS = {
 const ICON_STROKE = 1.75;
 
 function fmtAmount(wei) {
-  if (!wei || wei === 0n) return "0 ETH";
+  if (!wei || wei === "0" || wei === 0) return "0 ETH";
   const num = Number(wei) / 1e18;
   const s = num >= 1
     ? num.toLocaleString(undefined, { maximumFractionDigits: 4 })

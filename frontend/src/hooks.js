@@ -146,7 +146,7 @@ const TYPE_MAP = { Deposited: 'deposit', Withdrawn: 'withdraw', Borrowed: 'borro
 function normalizeLog(log, ts) {
   return {
     type: TYPE_MAP[log.eventName] || log.eventName,
-    assets: log.args.assets,
+    assets: log.args.assets.toString(),
     blockNumber: Number(log.blockNumber),
     txHash: log.transactionHash,
     timestamp: ts || 0,

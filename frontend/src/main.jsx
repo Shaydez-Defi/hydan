@@ -3,13 +3,13 @@ import { createRoot } from 'react-dom/client';
 import { WagmiProvider, http, createConfig } from 'wagmi';
 import { sepolia } from 'wagmi/chains';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { injected, metaMask } from 'wagmi/connectors';
+import { injected } from 'wagmi/connectors';
 import App from './App.jsx';
 import './index.css';
 
 const config = createConfig({
   chains: [sepolia],
-  connectors: [injected(), metaMask()],
+  connectors: [injected()],
   transports: { [sepolia.id]: http() },
 });
 

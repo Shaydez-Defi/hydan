@@ -17,6 +17,7 @@ import {
   Search,
   Zap,
   LogOut,
+  XCircle,
 } from "lucide-react";
 import {
   useVaultAddress,
@@ -482,7 +483,7 @@ function ActionCard({ c, action, onOpen, delay }) {
   );
 }
 
-function ActionModal({ c, action, onClose, address, vaultAddress }) {
+function ActionModal({ c, action, onClose, address, vaultAddress, showToast }) {
   const [amount, setAmount] = useState("");
   const [status, setStatus] = useState(null);
   const { writeContractAsync } = useWriteContract();
@@ -535,24 +536,30 @@ function ActionModal({ c, action, onClose, address, vaultAddress }) {
           args: [weiAmount, address],
           gas: 800000n,
         });
+        showToast(`${amount} ETH deposited`);
       } else if (action.key === "borrow") {
         await writeContractAsync({
           address: vaultAddress, abi: vaultAbi, functionName: "borrow",
           args: [weiAmount, 2, 0, address],
         });
+        showToast(`${amount} ETH borrowed`);
       } else if (action.key === "repay") {
         await writeContractAsync({
           address: vaultAddress, abi: vaultAbi, functionName: "repay",
           args: [weiAmount, 2, address],
         });
+        showToast(`${amount} ETH repaid`);
       } else if (action.key === "withdraw") {
         await writeContractAsync({
           address: vaultAddress, abi: vaultAbi, functionName: "withdraw",
           args: [weiAmount, address, address],
         });
+        showToast(`${amount} ETH withdrawn`);
       }
       setStatus("success");
     } catch (err) {
+      const msg = err?.shortMessage || "Transaction failed";
+      showToast(msg, "error");
       console.error("Vault action failed:", err);
       setStatus("error");
     }
@@ -603,7 +610,7 @@ function ActionModal({ c, action, onClose, address, vaultAddress }) {
   );
 }
 
-function VaultScreen({ c, aaveData, totalAssetsRaw, userWethBalance, address, vaultAddress }) {
+function VaultScreen({ c, aaveData, totalAssetsRaw, userWethBalance, address, vaultAddress, showToast }) {
   const [openAction, setOpenAction] = useState(null);
   const { events, loading } = useVaultActivity(address);
 
@@ -688,7 +695,7 @@ function VaultScreen({ c, aaveData, totalAssetsRaw, userWethBalance, address, va
         </div>
       </div>
 
-      {openAction && <ActionModal c={c} action={actions.find((a) => a.key === openAction)} onClose={() => setOpenAction(null)} address={address} vaultAddress={vaultAddress} />}
+      {openAction && <ActionModal c={c} action={actions.find((a) => a.key === openAction)} onClose={() => setOpenAction(null)} address={address} vaultAddress={vaultAddress} showToast={showToast} />}
     </main>
   );
 }
@@ -864,15 +871,18 @@ function AutomationScreen({ c, aaveData }) {
 /* ---------------------------------------------------------------------
    App shell
 --------------------------------------------------------------------- */
-function Toast({ c, message }) {
+function Toast({ c, message, type = "success" }) {
   if (!message) return null;
+  const isError = type === "error";
+  const iconColor = isError ? c.carmine : c.green;
+  const Icon = isError ? XCircle : CheckCircle2;
   return (
     <div className="fixed bottom-8 left-1/2 z-50 fade-up" style={{ transform: "translateX(-50%)" }}>
       <div
         className="liquid-glass flex items-center gap-2.5 px-5 py-3"
         style={{ borderRadius: "999px", boxShadow: c.cardShadow }}
       >
-        <CheckCircle2 size={15} style={{ color: c.green }} />
+        <Icon size={15} style={{ color: iconColor }} />
         <span className="text-sm font-medium" style={{ color: c.ink }}>{message}</span>
       </div>
     </div>
@@ -883,10 +893,22 @@ export default function HydanApp() {
   useGoogleFonts();
   const [theme, setTheme] = useState("dark");
   const [screen, setScreen] = useState("vault");
+  const [toast, setToast] = useState(null);
   const c = PALETTES[theme];
+
+  function showToast(message, type = "success") {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  }
+
   const { address } = useAccount();
   const publicClient = usePublicClient();
-  const { connect, connectors } = useConnect();
+  const { connect, connectors } = useConnect({
+    mutation: {
+      onSuccess() { showToast("Wallet connected"); },
+      onError() { showToast("Failed to connect wallet", "error"); }
+    }
+  });
   const { disconnect } = useDisconnect();
 
   const vaultAddress = useVaultAddress();
@@ -911,11 +933,11 @@ export default function HydanApp() {
           address={address}
           screen={screen}
           onNavigate={setScreen}
-          onDisconnect={() => { disconnect(); setScreen("vault"); }}
+          onDisconnect={() => { disconnect(); setScreen("vault"); showToast("Wallet disconnected"); }}
         />
 
         {!address && <LandingScreen c={c} onConnect={handleConnect} healthStatusHandle={healthStatus} />}
-        {address && screen === "vault" && <VaultScreen c={c} aaveData={aaveData} totalAssetsRaw={totalAssetsRaw} userWethBalance={userWethBalance} address={address} vaultAddress={vaultAddress} />}
+        {address && screen === "vault" && <VaultScreen c={c} aaveData={aaveData} totalAssetsRaw={totalAssetsRaw} userWethBalance={userWethBalance} address={address} vaultAddress={vaultAddress} showToast={showToast} />}
         {address && screen === "explorer" && <ExplorerScreen c={c} aaveData={aaveData} vaultAddress={vaultAddress} />}
         {address && screen === "automation" && <AutomationScreen c={c} aaveData={aaveData} />}
 
@@ -926,6 +948,8 @@ export default function HydanApp() {
           </footer>
         )}
       </div>
+
+      <Toast c={c} message={toast?.message} type={toast?.type} />
     </div>
   );
 }
