@@ -1,7 +1,4 @@
 import { useState, useEffect } from "react";
-import { useAccount, useConnect, useDisconnect } from "wagmi";
-import { parseEther } from "viem";
-import { useWriteContract, useReadContract, usePublicClient } from "wagmi";
 import {
   Moon,
   Sun,
@@ -16,41 +13,32 @@ import {
   Loader2,
   Search,
   Zap,
+  LogOut,
 } from "lucide-react";
-import {
-  useVaultAddress,
-  useVaultTotalAssets,
-  useVaultHealthStatus,
-  useUserWethBalance,
-  useVaultAaveData,
-  useVaultActivity,
-} from "./hooks.js";
-import ActivityFeed from "./ActivityFeed.jsx";
-import vaultAbi from "./abi/HydanVault.json";
 
-const WETH = "0xC558DBdd856501FCd9aaF1E62eae57A9F0629a3c";
-
-const erc20Abi = [
-  { inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], name: "approve", outputs: [{ type: "bool" }], stateMutability: "nonpayable", type: "function" },
-  { inputs: [{ name: "owner", type: "address" }, { name: "spender", type: "address" }], name: "allowance", outputs: [{ type: "uint256" }], stateMutability: "view", type: "function" },
-  { inputs: [{ name: "account", type: "address" }], name: "balanceOf", outputs: [{ type: "uint256" }], stateMutability: "view", type: "function" },
-];
-
-const wethAbi = [
-  { name: "deposit", type: "function", stateMutability: "payable", inputs: [], outputs: [] },
-];
+function sanitizeDecimal(value) {
+  let v = value.replace(/[^0-9.]/g, "");
+  const firstDot = v.indexOf(".");
+  if (firstDot !== -1) {
+    v = v.slice(0, firstDot + 1) + v.slice(firstDot + 1).replace(/\./g, "");
+  }
+  return v;
+}
 
 function useGoogleFonts() {
   useEffect(() => {
     const link = document.createElement("link");
     link.rel = "stylesheet";
     link.href =
-      "https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@700;800&family=Pacifico&family=Bagel+Fat+One&family=Manrope:wght@400;500;600;700;800&display=swap";
+      "https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@700;800&family=Bagel+Fat+One&family=Manrope:wght@400;500;600;700;800&display=swap";
     document.head.appendChild(link);
     return () => document.head.removeChild(link);
   }, []);
 }
 
+/* ---------------------------------------------------------------------
+   Locked tokens — shared across every screen.
+--------------------------------------------------------------------- */
 const PALETTES = {
   light: {
     bg: "#E4EADC",
@@ -116,7 +104,7 @@ function GlobalStyle({ c }) {
       html::-webkit-scrollbar-track { background: transparent; }
       html::-webkit-scrollbar-thumb { background: ${c.chip}; border-radius: 999px; }
       html::-webkit-scrollbar-thumb:hover { background: ${c.green}; }
-      .font-wordmark { font-family: 'Pacifico', cursive; }
+      .font-wordmark { font-family: 'Schibsted Grotesk', sans-serif; font-weight: 800; letter-spacing: -0.02em; }
       .font-num { font-variant-numeric: tabular-nums; }
       .font-num-display { font-family: 'Bagel Fat One', cursive; font-variant-numeric: tabular-nums; }
       .press { transition: transform 150ms var(--ease-out), background-color 180ms ease, opacity 180ms ease; }
@@ -129,6 +117,7 @@ function GlobalStyle({ c }) {
         background: ${c.inputBg};
         backdrop-filter: blur(14px);
         -webkit-backdrop-filter: blur(14px);
+        border: 1px solid rgba(255,255,255,0.10);
         box-shadow: inset 0 1px 1px rgba(255,255,255,0.08), ${c.cardShadow};
       }
       .wordmark-solid {
@@ -201,7 +190,12 @@ function ThemeToggle({ c, theme, onToggle }) {
   );
 }
 
-function NavBar({ c, theme, onToggle, address, screen, onNavigate, onDisconnect }) {
+/* ---------------------------------------------------------------------
+   NavBar — logo always left. When connected, screen-switcher pills sit
+   in the middle and the wallet address shows on the right; when not
+   connected, it's just theme + GitHub.
+--------------------------------------------------------------------- */
+function NavBar({ c, theme, onToggle, connected, screen, onNavigate, onDisconnect }) {
   const links = [
     { key: "vault", label: "Vault" },
     { key: "explorer", label: "Explorer" },
@@ -209,72 +203,91 @@ function NavBar({ c, theme, onToggle, address, screen, onNavigate, onDisconnect 
   ];
   const activeIndex = links.findIndex((l) => l.key === screen);
 
+  const logo = (
+    <div className="rounded-full px-4 py-2" style={{ background: c.pill, boxShadow: c.cardShadow, backdropFilter: "blur(10px)" }}>
+      <span className="font-wordmark text-base" style={{ color: c.ink }}>h<span style={{ marginLeft: "-0.05em", marginRight: "-0.05em" }}>ý</span>dan</span>
+    </div>
+  );
+
+  const controls = (
+    <div
+      className="flex items-center gap-2 rounded-full pl-3 pr-1.5 py-1.5"
+      style={{ background: c.pill, boxShadow: c.cardShadow, backdropFilter: "blur(10px)" }}
+    >
+      {connected && <span className="font-num text-xs" style={{ color: c.inkSoft }}>0x4f...9a2c</span>}
+      {connected && (
+        <button
+          onClick={onDisconnect}
+          aria-label="Disconnect wallet"
+          className="press w-8 h-8 rounded-full flex items-center justify-center"
+          style={{ background: c.surface, color: c.ink, boxShadow: c.cardShadow }}
+        >
+          <LogOut size={14} />
+        </button>
+      )}
+      <ThemeToggle c={c} theme={theme} onToggle={onToggle} />
+      <button className="press w-8 h-8 rounded-full flex items-center justify-center" style={{ background: c.surface, color: c.ink, boxShadow: c.cardShadow }}>
+        <Github size={14} />
+      </button>
+    </div>
+  );
+
+  const switcher = connected && (
+    <div
+      className="relative flex items-center gap-1 rounded-full p-1.5"
+      style={{ background: c.pill, boxShadow: c.cardShadow, backdropFilter: "blur(10px)" }}
+    >
+      <div
+        className="absolute top-1.5 bottom-1.5 rounded-full"
+        style={{
+          background: c.chip,
+          width: "108px",
+          left: `${6 + activeIndex * 112}px`,
+          transition: "left 320ms cubic-bezier(0.45, 0, 0.15, 1)",
+        }}
+      />
+      {links.map((l) => (
+        <button
+          key={l.key}
+          onClick={() => onNavigate(l.key)}
+          className="relative z-10 text-sm font-medium px-4 py-1.5 rounded-full text-center"
+          style={{
+            color: screen === l.key ? c.ink : c.inkSoft,
+            transition: "color 320ms cubic-bezier(0.45, 0, 0.15, 1)",
+            width: "108px",
+          }}
+        >
+          {l.label}
+        </button>
+      ))}
+    </div>
+  );
+
   return (
     <div className="sticky top-0 z-40 px-5 pt-5 pb-3">
-      <div className="max-w-5xl mx-auto flex items-start justify-between gap-2">
-        <div className="rounded-full px-4 py-2" style={{ background: c.pill, boxShadow: c.cardShadow, backdropFilter: "blur(10px)" }}>
-          <span className="font-wordmark text-base" style={{ color: c.ink }}>h<span style={{ marginLeft: "-0.05em", marginRight: "-0.05em" }}>ý</span>dan</span>
+      {/* Mobile / tablet: two rows */}
+      <div className="lg:hidden max-w-6xl mx-auto">
+        <div className="flex items-start justify-between gap-2">
+          {logo}
+          {controls}
         </div>
-
-        <div
-          className="flex items-center gap-2 rounded-full pl-3 pr-1.5 py-1.5"
-          style={{ background: c.pill, boxShadow: c.cardShadow, backdropFilter: "blur(10px)" }}
-        >
-          {address && (
-            <button
-              onClick={onDisconnect}
-              className="font-num text-xs hover:opacity-70 transition-opacity"
-              style={{ color: c.inkSoft }}
-              title="Disconnect"
-            >
-              {address.slice(0, 6)}...{address.slice(-4)}
-            </button>
-          )}
-          <ThemeToggle c={c} theme={theme} onToggle={onToggle} />
-          <a href="https://github.com/Shaydez-Defi/hydan" target="_blank" rel="noopener noreferrer" className="press w-8 h-8 rounded-full flex items-center justify-center" style={{ background: c.surface, color: c.ink, boxShadow: c.cardShadow }}>
-            <Github size={14} />
-          </a>
-        </div>
+        {switcher && <div className="flex justify-center mt-3">{switcher}</div>}
       </div>
 
-      {address && (
-        <div className="flex justify-center mt-3">
-          <div
-            className="relative flex items-center gap-1 rounded-full p-1.5"
-            style={{ background: c.pill, boxShadow: c.cardShadow, backdropFilter: "blur(10px)" }}
-          >
-            <div
-              className="absolute top-1.5 bottom-1.5 rounded-full"
-              style={{
-                background: c.chip,
-                width: `calc((100% - 12px) / 3)`,
-                left: `calc(6px + ${activeIndex} * ((100% - 12px) / 3))`,
-                transition: "left 320ms cubic-bezier(0.45, 0, 0.15, 1)",
-              }}
-            />
-            {links.map((l) => (
-              <button
-                key={l.key}
-                onClick={() => onNavigate(l.key)}
-                className="relative z-10 text-sm font-medium px-4 py-1.5 rounded-full text-center"
-                style={{
-                  color: screen === l.key ? c.ink : c.inkSoft,
-                  transition: "color 320ms cubic-bezier(0.45, 0, 0.15, 1)",
-                  minWidth: "92px",
-                }}
-              >
-                {l.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Desktop: one row, switcher centered between logo and controls */}
+      <div className="hidden lg:grid lg:grid-cols-3 lg:items-center max-w-6xl mx-auto">
+        <div className="justify-self-start">{logo}</div>
+        <div className="justify-self-center">{switcher}</div>
+        <div className="justify-self-end">{controls}</div>
+      </div>
     </div>
   );
 }
 
-function ProofCard({ c, healthStatusHandle }) {
-  const handleStr = healthStatusHandle ? `${healthStatusHandle.slice(0, 18)}...` : null;
+/* ---------------------------------------------------------------------
+   Landing
+--------------------------------------------------------------------- */
+function ProofCard({ c }) {
   return (
     <div
       className="fade-up liquid-glass px-7 py-6 max-w-sm w-full"
@@ -288,8 +301,11 @@ function ProofCard({ c, healthStatusHandle }) {
         <div className="font-semibold uppercase tracking-wide mb-2" style={{ color: c.inkFaint, fontSize: "10px" }}>
           Aave · public record
         </div>
-        <div className="font-num text-xs font-mono" style={{ color: c.inkSoft, wordBreak: "break-all" }}>
-          {handleStr || "—"}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="h-3.5 rounded-sm" style={{ width: "48px", background: c.ink, opacity: 0.85 }} />
+          <span className="h-3.5 rounded-sm" style={{ width: "34px", background: c.ink, opacity: 0.85 }} />
+          <span className="h-3.5 rounded-sm" style={{ width: "58px", background: c.ink, opacity: 0.85 }} />
+          <span className="h-3.5 rounded-sm" style={{ width: "26px", background: c.ink, opacity: 0.85 }} />
         </div>
       </div>
 
@@ -308,7 +324,7 @@ function ProofCard({ c, healthStatusHandle }) {
 function LandingFooter({ c }) {
   return (
     <footer className="relative overflow-hidden mt-8" style={{ background: c.heroCard }}>
-      <div className="relative z-10 max-w-5xl mx-auto px-6 md:px-12 pt-14 pb-10">
+      <div className="relative z-10 max-w-6xl mx-auto px-6 md:px-12 pt-14 pb-10">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-8 mb-10">
           <div className="col-span-2 sm:col-span-1">
             <span className="font-wordmark text-2xl" style={{ color: c.ink }}>h<span style={{ marginLeft: "-0.05em", marginRight: "-0.05em" }}>ý</span>dan</span>
@@ -319,27 +335,23 @@ function LandingFooter({ c }) {
           <div>
             <h4 className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: c.inkFaint }}>Product</h4>
             <ul className="space-y-2 text-sm" style={{ color: c.inkSoft }}>
-              {/* TODO: No <section id="vault"> element exists yet. Replace href="#vault" anchor once it does. */}
-              <li><a href="#" style={{ color: "inherit" }}>Vault</a></li>
-              {/* TODO: No <section id="explorer"> element exists yet. Replace href="#explorer" anchor once it does. */}
-              <li><a href="#" style={{ color: "inherit" }}>Explorer</a></li>
-              {/* TODO: No <section id="automation"> element exists yet. Replace href="#automation" anchor once it does. */}
-              <li><a href="#" style={{ color: "inherit" }}>Automation</a></li>
+              <li>Vault</li>
+              <li>Explorer</li>
+              <li>Automation</li>
             </ul>
           </div>
           <div>
             <h4 className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: c.inkFaint }}>Resources</h4>
             <ul className="space-y-2 text-sm" style={{ color: c.inkSoft }}>
-              <li><a href="https://github.com/Shaydez-Defi/hydan" target="_blank" rel="noopener noreferrer" style={{ color: "inherit" }}>GitHub</a></li>
-              <li><a href="https://github.com/Shaydez-Defi/hydan#readme" target="_blank" rel="noopener noreferrer" style={{ color: "inherit" }}>Docs</a></li>
-              {/* TODO: swap href for the actual iExec WTF Hackathon submission page URL */}
-              <li><a href="https://www.iex.ec" target="_blank" rel="noopener noreferrer" style={{ color: "inherit" }}>iExec WTF Hackathon</a></li>
+              <li>GitHub</li>
+              <li>Docs</li>
+              <li>iExec WTF Hackathon</li>
             </ul>
           </div>
         </div>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pt-6" style={{ borderTop: `1px solid ${c.cardBorder}` }}>
-          <span className="font-num text-[11px]" style={{ color: c.inkFaint }}>Built on Nox × Aave — Sepolia testnet</span>
-          <span className="font-num text-[11px]" style={{ color: c.inkFaint }}>iExec WTF Hackathon 2026</span>
+          <span className="font-num" style={{ color: c.inkFaint, fontSize: "11px" }}>Built on Nox × Aave — Sepolia testnet</span>
+          <span className="font-num" style={{ color: c.inkFaint, fontSize: "11px" }}>iExec WTF Hackathon 2026</span>
         </div>
       </div>
       <div
@@ -353,9 +365,21 @@ function LandingFooter({ c }) {
   );
 }
 
-function LandingScreen({ c, onConnect, healthStatusHandle }) {
+function LandingScreen({ c, onConnect }) {
   return (
-    <main className="relative flex flex-col justify-center px-6 md:px-12 py-16 max-w-5xl mx-auto w-full" style={{ minHeight: "calc(100vh - 96px)" }}>
+    <main className="relative flex flex-col justify-center px-6 md:px-12 py-16 max-w-6xl mx-auto w-full overflow-hidden" style={{ minHeight: "calc(100vh - 96px)" }}>
+      <div
+        className="absolute pointer-events-none"
+        style={{
+          width: "70%",
+          height: "70%",
+          top: "10%",
+          left: "50%",
+          transform: "translateX(-50%)",
+          background: `radial-gradient(ellipse at center, ${c.green}18 0%, transparent 70%)`,
+          filter: "blur(80px)",
+        }}
+      />
       <div className="relative z-10 flex flex-col lg:flex-row lg:items-center gap-10 lg:gap-16">
         <div className="flex-1">
           <h1 className="fade-up font-wordmark wordmark-solid text-left" style={{ fontSize: "clamp(4rem, 12vw, 8.5rem)", lineHeight: 1.05 }}>
@@ -364,45 +388,37 @@ function LandingScreen({ c, onConnect, healthStatusHandle }) {
           <p className="fade-up text-left text-base md:text-lg mt-2 mb-8 max-w-md" style={{ color: c.inkSoft, animationDelay: "90ms" }}>
             Borrow on Aave without broadcasting your balance sheet.
           </p>
-          <div className="fade-up flex items-center gap-3" style={{ animationDelay: "160ms" }}>
+          <div className="fade-up flex items-center gap-3 mb-6" style={{ animationDelay: "160ms" }}>
             <button onClick={onConnect} className="press btn-glass inline-flex items-center gap-2 text-sm font-semibold px-7 py-3.5 rounded-full" style={{ color: c.ink }}>
               <Wallet size={15} />
               Connect wallet
             </button>
           </div>
+          <div className="fade-up flex items-center gap-2 text-xs flex-wrap" style={{ color: c.inkFaint, animationDelay: "220ms" }}>
+            <span>Built on Aave</span>
+            <span>·</span>
+            <span>Confidential via Nox</span>
+            <span>·</span>
+            <span>Sepolia testnet</span>
+          </div>
         </div>
         <div className="lg:flex-1 lg:flex lg:justify-end">
-          <ProofCard c={c} healthStatusHandle={healthStatusHandle} />
+          <ProofCard c={c} />
         </div>
       </div>
     </main>
   );
 }
 
-function buildActions(aaveData, userWethBalance, totalAssetsRaw) {
-  const eth = (wei) => {
-    if (!wei || wei === 0n) return "0";
-    const num = Number(wei) / 1e18;
-    if (num >= 10000) return num.toLocaleString(undefined, { maximumFractionDigits: 0 });
-    return num.toFixed(num < 1 ? 4 : 2);
-  };
-  const base = (val) => {
-    if (!val || val === 0n) return "0";
-    const num = Number(val) / 1e8;
-    if (num >= 10000) return num.toLocaleString(undefined, { maximumFractionDigits: 0 });
-    return num.toFixed(num < 1 ? 4 : 2);
-  };
-  const depositMax = userWethBalance || 0n;
-  const borrowMax = aaveData ? aaveData[2] : 0n;
-  const repayMax = aaveData ? aaveData[1] : 0n;
-  const withdrawMax = totalAssetsRaw || 0n;
-  return [
-    { key: "deposit", icon: Landmark, label: "Deposit", unit: "ETH", verb: "Deposit", tone: "green", helper: "Add collateral", max: eth(depositMax), hfAfter: "—" },
-    { key: "borrow", icon: CircleDollarSign, label: "Borrow", unit: "ETH", verb: "Borrow", tone: "carmine", helper: "Draw more debt", max: base(borrowMax), hfAfter: "—" },
-    { key: "repay", icon: ShieldCheck, label: "Repay", unit: "ETH", verb: "Repay", tone: "green", helper: "Pay down debt", max: base(repayMax), hfAfter: "—" },
-    { key: "withdraw", icon: Unlock, label: "Withdraw", unit: "ETH", verb: "Withdraw", tone: "carmine", helper: "Free collateral", max: eth(withdrawMax), hfAfter: "—" },
-  ];
-}
+/* ---------------------------------------------------------------------
+   Vault
+--------------------------------------------------------------------- */
+const ACTIONS = [
+  { key: "deposit", icon: Landmark, label: "Deposit", unit: "ETH", verb: "Deposit", tone: "green", helper: "Add collateral", max: "4.82", hfAfter: "2.31" },
+  { key: "borrow", icon: CircleDollarSign, label: "Borrow", unit: "USDC", verb: "Borrow", tone: "carmine", helper: "Draw more debt", max: "2,310", hfAfter: "1.42" },
+  { key: "repay", icon: ShieldCheck, label: "Repay", unit: "USDC", verb: "Repay", tone: "green", helper: "Pay down debt", max: "6,140", hfAfter: "2.68" },
+  { key: "withdraw", icon: Unlock, label: "Withdraw", unit: "ETH", verb: "Withdraw", tone: "carmine", helper: "Free collateral", max: "1.10", hfAfter: "1.51" },
+];
 
 function ActionCard({ c, action, onOpen, delay }) {
   const Icon = action.icon;
@@ -421,80 +437,18 @@ function ActionCard({ c, action, onOpen, delay }) {
   );
 }
 
-function ActionModal({ c, action, onClose, address, vaultAddress }) {
+function ActionModal({ c, action, onClose, onNotify }) {
   const [amount, setAmount] = useState("");
   const [status, setStatus] = useState(null);
-  const { writeContractAsync } = useWriteContract();
-  const publicClient = usePublicClient();
-  const { data: allowance } = useReadContract({
-    address: WETH, abi: erc20Abi, functionName: "allowance",
-    args: [address, vaultAddress],
-    query: { enabled: !!address && !!vaultAddress },
-  });
-  const { data: wethBalance } = useReadContract({
-    address: WETH, abi: erc20Abi, functionName: "balanceOf",
-    args: [address],
-    query: { enabled: !!address },
-  });
-
   if (!action) return null;
   const Icon = action.icon;
 
-  const weiAmount = (() => {
-    try { return parseEther(amount || "0"); } catch { return 0n; }
-  })();
-
-  async function submit() {
-    if (status === "pending" || status === "wrapping" || status === "approving" || !amount || weiAmount <= 0n) return;
-    if (action.key !== "deposit") {
-      setStatus("pending");
-    }
-    try {
-      if (action.key === "deposit") {
-        if (wethBalance < weiAmount) {
-          const shortfall = weiAmount - wethBalance;
-          setStatus("wrapping");
-          const wrapHash = await writeContractAsync({
-            address: WETH, abi: wethAbi, functionName: "deposit",
-            args: [], value: shortfall,
-          });
-          await publicClient.waitForTransactionReceipt({ hash: wrapHash });
-        }
-        if (allowance < weiAmount) {
-          setStatus("approving");
-          const approveHash = await writeContractAsync({
-            address: WETH, abi: erc20Abi, functionName: "approve",
-            args: [vaultAddress, weiAmount],
-          });
-          await publicClient.waitForTransactionReceipt({ hash: approveHash });
-        }
-        setStatus("pending");
-        await writeContractAsync({
-          address: vaultAddress, abi: vaultAbi, functionName: "deposit",
-          args: [weiAmount, address],
-          gas: 800000n,
-        });
-      } else if (action.key === "borrow") {
-        await writeContractAsync({
-          address: vaultAddress, abi: vaultAbi, functionName: "borrow",
-          args: [weiAmount, 2, 0, address],
-        });
-      } else if (action.key === "repay") {
-        await writeContractAsync({
-          address: vaultAddress, abi: vaultAbi, functionName: "repay",
-          args: [weiAmount, 2, address],
-        });
-      } else if (action.key === "withdraw") {
-        await writeContractAsync({
-          address: vaultAddress, abi: vaultAbi, functionName: "withdraw",
-          args: [weiAmount, address, address],
-        });
-      }
+  function submit() {
+    setStatus("pending");
+    setTimeout(() => {
       setStatus("success");
-    } catch (err) {
-      console.error("Vault action failed:", err);
-      setStatus("error");
-    }
+      onNotify?.(`${action.verb} confirmed — ${amount} ${action.unit}`);
+    }, 1300);
   }
 
   return (
@@ -510,7 +464,7 @@ function ActionModal({ c, action, onClose, address, vaultAddress }) {
           <div className="liquid-glass flex items-center gap-2 rounded-full px-5 py-3.5 mb-5">
             <input
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              onChange={(e) => setAmount(sanitizeDecimal(e.target.value))}
               placeholder="0.00"
               inputMode="decimal"
               autoFocus
@@ -526,14 +480,13 @@ function ActionModal({ c, action, onClose, address, vaultAddress }) {
             </button>
             <button
               onClick={submit}
-              disabled={(status === "pending" || status === "wrapping" || status === "approving") || !amount}
+              disabled={status === "pending" || !amount}
               className="press flex-1 text-sm font-semibold py-2.5 rounded-full flex items-center justify-center gap-1.5"
               style={{ background: c.ctaBg, color: c.ctaText }}
             >
-              {(status === "pending" || status === "wrapping" || status === "approving") && <Loader2 size={14} className="animate-spin" />}
+              {status === "pending" && <Loader2 size={14} className="animate-spin" />}
               {status === "success" && <CheckCircle2 size={14} />}
-              {status === "wrapping" ? "Wrapping ETH" : status === "approving" ? "Approving" : status === "pending" ? "Depositing" : status === "success" ? "Deposited" : action.verb}
-              {status === "error" && " Retry"}
+              {status === "pending" ? "Confirming" : status === "success" ? "Confirmed" : action.verb}
             </button>
           </div>
         </div>
@@ -542,69 +495,88 @@ function ActionModal({ c, action, onClose, address, vaultAddress }) {
   );
 }
 
-function VaultScreen({ c, aaveData, totalAssetsRaw, userWethBalance, address, vaultAddress }) {
+const ACTIVITY = [
+  { key: "1", icon: Landmark, label: "Deposit", amount: "+1.20 ETH", time: "2h ago", tone: "green" },
+  { key: "2", icon: ShieldCheck, label: "Repay", amount: "-500 USDC", time: "1d ago", tone: "green" },
+  { key: "3", icon: CircleDollarSign, label: "Borrow", amount: "+2,000 USDC", time: "3d ago", tone: "carmine" },
+  { key: "4", icon: Landmark, label: "Deposit", amount: "+2.00 ETH", time: "6d ago", tone: "green" },
+];
+
+function ActivityPanel({ c }) {
+  return (
+    <div className="fade-up" style={{ animationDelay: "120ms" }}>
+      <h2 className="text-sm font-semibold mb-3" style={{ color: c.ink }}>Recent activity</h2>
+      <div className="liquid-glass p-2" style={{ borderRadius: "28px" }}>
+        {ACTIVITY.map((a, i) => {
+          const Icon = a.icon;
+          const tone = a.tone === "green" ? c.green : c.carmine;
+          const toneSoft = a.tone === "green" ? c.greenSoft : c.carmineSoft;
+          return (
+            <div
+              key={a.key}
+              className="flex items-center gap-3 px-3 py-3"
+              style={i < ACTIVITY.length - 1 ? { borderBottom: `1px solid ${c.cardBorder}` } : undefined}
+            >
+              <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: toneSoft, color: tone }}>
+                <Icon size={15} />
+              </span>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium" style={{ color: c.ink }}>{a.label}</div>
+                <div className="text-xs" style={{ color: c.inkFaint }}>{a.time}</div>
+              </div>
+              <span className="font-num text-sm font-semibold shrink-0" style={{ color: tone }}>{a.amount}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function VaultScreen({ c, onNotify }) {
+  const [status, setStatus] = useState("healthy");
   const [openAction, setOpenAction] = useState(null);
-  const { events, loading } = useVaultActivity(address);
-
-  const maxUintHalf = 2n ** 255n;
-  const hf = aaveData ? aaveData[5] : null;
-  const isHealthy = !hf || hf > 10n ** 27n;
-
-  const fmtHf = () => {
-    if (!hf) return "—";
-    if (hf >= maxUintHalf) return "∞";
-    const num = Number(hf) / 1e27;
-    return num.toFixed(2);
-  };
-  const fmtEth = (wei) => {
-    if (!wei || wei === 0n) return "0";
-    const num = Number(wei) / 1e18;
-    return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  };
-  const fmtBase = (val) => {
-    if (!val || val === 0n) return "0";
-    const num = Number(val) / 1e8;
-    return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  };
-
-  const collateral = totalAssetsRaw || 0n;
-  const debt = aaveData ? aaveData[1] : 0n;
-  const actions = buildActions(aaveData, userWethBalance, totalAssetsRaw);
+  const isHealthy = status === "healthy";
 
   return (
-    <main className="flex-1 w-full px-6 pt-6 pb-14 max-w-5xl mx-auto">
-      <div className="fade-up mb-1">
-        <h1 className="text-3xl font-extrabold" style={{ color: c.ink, letterSpacing: "-0.02em" }}>Your vault</h1>
-        <p className="text-sm mt-1" style={{ color: c.inkSoft }}>Hover to reveal your numbers.</p>
-      </div>
+    <main className="flex-1 w-full px-6 pt-6 pb-14 max-w-6xl mx-auto">
+      <div className="lg:grid lg:grid-cols-[1fr_320px] lg:gap-10 lg:items-start">
+        <div>
+          <div className="fade-up mb-1">
+            <h1 className="text-3xl font-extrabold" style={{ color: c.ink, letterSpacing: "-0.02em" }}>Your vault</h1>
+            <p className="text-sm mt-1" style={{ color: c.inkSoft }}>Hover to reveal your numbers.</p>
+          </div>
 
-      <div className="flex flex-col lg:flex-row lg:gap-6">
-        <div className="lg:w-[60%]">
           <div className="fade-up px-8 py-8 mt-6 mb-10" style={{ background: c.heroCard, boxShadow: c.cardShadow, animationDelay: "60ms", borderRadius: "56px" }}>
             <div className="flex items-start justify-between mb-1">
               <div>
                 <div className="text-base font-semibold" style={{ color: c.ink }}>Health factor</div>
                 <div className="text-xs" style={{ color: c.inkSoft }}>Collateral minus debt exposure</div>
               </div>
-              <span className="inline-flex items-center justify-center w-9 h-9 rounded-full" style={{ background: isHealthy ? c.greenSoft : c.carmineSoft, color: isHealthy ? c.green : c.carmine }}>
+              <button
+                onClick={() => setStatus(isHealthy ? "risk" : "healthy")}
+                aria-label="Toggle demo status"
+                className="press w-9 h-9 rounded-full flex items-center justify-center"
+                style={{ background: isHealthy ? c.greenSoft : c.carmineSoft, color: isHealthy ? c.green : c.carmine }}
+              >
                 {isHealthy ? <ShieldCheck size={16} /> : <ShieldAlert size={16} />}
-              </span>
+              </button>
             </div>
 
             <div className="reveal-group flex flex-col lg:flex-row lg:items-end lg:justify-between lg:gap-8">
               <div className="reveal-mask mt-3 mb-5 lg:mb-0 lg:mt-3 shrink-0">
                 <span className="font-num-display text-4xl lg:text-5xl" style={{ color: isHealthy ? c.green : c.carmine }} tabIndex={0}>
-                  {fmtHf()}
+                  {isHealthy ? "1.84" : "1.03"}
                 </span>
               </div>
               <div className="flex gap-3 lg:flex-1 lg:max-w-md">
                 <div className="reveal-mask flex-1 rounded-full px-5 py-3" style={{ background: c.chip }}>
                   <div className="font-medium uppercase tracking-wide mb-0.5" style={{ color: c.inkFaint, fontSize: "10px" }}>Collateral</div>
-                  <div className="font-num-display text-base" style={{ color: c.ink }}>{fmtEth(collateral)} <span className="text-xs font-medium" style={{ color: c.inkSoft }}>ETH</span></div>
+                  <div className="font-num-display text-base" style={{ color: c.ink }}>4.82 <span className="text-xs font-medium" style={{ color: c.inkSoft }}>ETH</span></div>
                 </div>
                 <div className="reveal-mask flex-1 rounded-full px-5 py-3" style={{ background: c.chip }}>
                   <div className="font-medium uppercase tracking-wide mb-0.5" style={{ color: c.inkFaint, fontSize: "10px" }}>Debt</div>
-                  <div className="font-num-display text-base" style={{ color: c.ink }}>{fmtBase(debt)} <span className="text-xs font-medium" style={{ color: c.inkSoft }}>ETH</span></div>
+                  <div className="font-num-display text-base" style={{ color: c.ink }}>6,140 <span className="text-xs font-medium" style={{ color: c.inkSoft }}>USDC</span></div>
                 </div>
               </div>
             </div>
@@ -616,22 +588,25 @@ function VaultScreen({ c, aaveData, totalAssetsRaw, userWethBalance, address, va
 
           <h2 className="fade-up text-sm font-semibold mb-3" style={{ color: c.ink, animationDelay: "220ms" }}>Manage position</h2>
           <div className="flex flex-wrap gap-3">
-            {actions.map((a, i) => (
+            {ACTIONS.map((a, i) => (
               <ActionCard key={a.key} c={c} action={a} onOpen={setOpenAction} delay={`${260 + i * 40}ms`} />
             ))}
           </div>
-
-          {openAction && <ActionModal c={c} action={actions.find((a) => a.key === openAction)} onClose={() => setOpenAction(null)} address={address} vaultAddress={vaultAddress} />}
         </div>
 
-        <div className="mt-6 lg:mt-[68px] lg:w-[40%]">
-          <ActivityFeed c={c} events={events} loading={loading} />
+        <div className="hidden lg:block mt-6 lg:mt-[76px]">
+          <ActivityPanel c={c} />
         </div>
       </div>
+
+      {openAction && <ActionModal c={c} action={ACTIONS.find((a) => a.key === openAction)} onClose={() => setOpenAction(null)} onNotify={onNotify} />}
     </main>
   );
 }
 
+/* ---------------------------------------------------------------------
+   Explorer
+--------------------------------------------------------------------- */
 function StatChip({ c, label, value, tone }) {
   const color = tone === "green" ? c.green : tone === "carmine" ? c.carmine : c.ink;
   return (
@@ -641,6 +616,17 @@ function StatChip({ c, label, value, tone }) {
     </div>
   );
 }
+
+const VAULTS = [
+  { id: "0x4f2c…9a2c", status: "healthy" },
+  { id: "0x81ab…3e7f", status: "healthy" },
+  { id: "0x0c9d…f421", status: "risk" },
+  { id: "0x77ee…10bc", status: "healthy" },
+  { id: "0x2b3a…8801", status: "healthy" },
+  { id: "0xd41f…c290", status: "risk" },
+  { id: "0x9a6c…5512", status: "healthy" },
+  { id: "0x5e0b…aa74", status: "healthy" },
+];
 
 function VaultCard({ c, vault, delay }) {
   const isHealthy = vault.status === "healthy";
@@ -658,54 +644,53 @@ function VaultCard({ c, vault, delay }) {
   );
 }
 
-function ExplorerScreen({ c, aaveData, vaultAddress }) {
+function ExplorerScreen({ c }) {
   const [query, setQuery] = useState("");
-
-  const hf = aaveData ? aaveData[5] : null;
-  const isHealthy = !hf || hf > 10n ** 27n;
-  const vault = {
-    id: vaultAddress ? `${vaultAddress.slice(0, 6)}...${vaultAddress.slice(-4)}` : "—",
-    status: isHealthy ? "healthy" : "risk",
-  };
-  const VAULTS = [vault];
   const healthyCount = VAULTS.filter((v) => v.status === "healthy").length;
   const riskCount = VAULTS.length - healthyCount;
   const filtered = VAULTS.filter((v) => v.id.toLowerCase().includes(query.toLowerCase()));
 
   return (
-    <main className="flex-1 max-w-5xl mx-auto w-full px-6 pt-6 pb-14">
+    <main className="flex-1 max-w-6xl mx-auto w-full px-6 pt-6 pb-14">
       <div className="fade-up mb-1">
         <h1 className="text-3xl font-extrabold" style={{ color: c.ink, letterSpacing: "-0.02em" }}>Public explorer</h1>
         <p className="text-sm mt-1" style={{ color: c.inkSoft }}>Anyone can see a vault's status. Nobody sees its numbers.</p>
       </div>
 
-      <div className="fade-up flex gap-3 mt-6 mb-6" style={{ animationDelay: "60ms" }}>
-        <StatChip c={c} label="Vaults" value={VAULTS.length} />
-        <StatChip c={c} label="Healthy" value={healthyCount} tone="green" />
-        <StatChip c={c} label="At risk" value={riskCount} tone="carmine" />
-      </div>
+      <div className="mt-6 lg:grid lg:grid-cols-[220px_1fr] lg:gap-10 lg:items-start">
+        <div className="fade-up flex gap-3 lg:flex-col mb-6 lg:mb-0" style={{ animationDelay: "60ms" }}>
+          <StatChip c={c} label="Vaults" value={VAULTS.length} />
+          <StatChip c={c} label="Healthy" value={healthyCount} tone="green" />
+          <StatChip c={c} label="At risk" value={riskCount} tone="carmine" />
+        </div>
 
-      <div className="fade-up liquid-glass flex items-center gap-2 px-5 py-3 mb-6" style={{ borderRadius: "999px", animationDelay: "100ms" }}>
-        <Search size={15} style={{ color: c.inkFaint }} />
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by vault ID"
-          className="bg-transparent outline-none flex-1 min-w-0 text-sm"
-          style={{ color: c.ink }}
-        />
-      </div>
+        <div>
+          <div className="fade-up liquid-glass flex items-center gap-2 px-5 py-3 mb-6" style={{ borderRadius: "999px", animationDelay: "100ms" }}>
+            <Search size={15} style={{ color: c.inkFaint }} />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by vault ID"
+              className="bg-transparent outline-none flex-1 min-w-0 text-sm"
+              style={{ color: c.ink }}
+            />
+          </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {filtered.map((v, i) => (
-          <VaultCard key={v.id} c={c} vault={v} delay={`${140 + i * 30}ms`} />
-        ))}
-        {filtered.length === 0 && <p className="text-sm text-center py-8" style={{ color: c.inkFaint }}>No vaults match that search.</p>}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {filtered.map((v, i) => (
+              <VaultCard key={v.id} c={c} vault={v} delay={`${140 + i * 30}ms`} />
+            ))}
+            {filtered.length === 0 && <p className="text-sm text-center py-8" style={{ color: c.inkFaint }}>No vaults match that search.</p>}
+          </div>
+        </div>
       </div>
     </main>
   );
 }
 
+/* ---------------------------------------------------------------------
+   Automation
+--------------------------------------------------------------------- */
 function AutomationSwitch({ c, on, onToggle }) {
   return (
     <button
@@ -719,91 +704,120 @@ function AutomationSwitch({ c, on, onToggle }) {
   );
 }
 
-function AutomationScreen({ c, aaveData }) {
+function AutomationScreen({ c, onNotify }) {
   const [on, setOn] = useState(true);
   const [threshold, setThreshold] = useState("1.20");
+  const currentHF = "1.84";
 
-  const hf = aaveData ? aaveData[5] : null;
-  const fmtHf = () => {
-    if (!hf) return "—";
-    if (hf >= 2n ** 255n) return "∞";
-    return (Number(hf) / 1e27).toFixed(2);
-  };
-  const currentHF = fmtHf();
+  function toggle() {
+    const next = !on;
+    setOn(next);
+    onNotify?.(next ? "Auto-repay enabled" : "Auto-repay disabled");
+  }
 
   return (
-    <main className="flex-1 max-w-5xl mx-auto w-full px-6 pt-6 pb-14">
-      <div className="fade-up mb-1">
-        <h1 className="text-3xl font-extrabold" style={{ color: c.ink, letterSpacing: "-0.02em" }}>Automation</h1>
-        <p className="text-sm mt-1" style={{ color: c.inkSoft }}>Repay automatically before you're at risk.</p>
-      </div>
+    <main className="flex-1 max-w-6xl mx-auto w-full px-6 pt-6 pb-14">
+      <div className="max-w-2xl">
+        <div className="fade-up mb-1">
+          <h1 className="text-3xl font-extrabold" style={{ color: c.ink, letterSpacing: "-0.02em" }}>Automation</h1>
+          <p className="text-sm mt-1" style={{ color: c.inkSoft }}>Repay automatically before you're at risk.</p>
+        </div>
 
-      <div className="fade-up mt-6 mb-6 px-8 py-8" style={{ background: c.heroCard, boxShadow: c.cardShadow, borderRadius: "48px", animationDelay: "60ms" }}>
-        <div className="flex items-start justify-between mb-1">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: on ? c.greenSoft : c.chip, color: on ? c.green : c.inkFaint }}>
-                <Zap size={14} />
-              </span>
-              <span className="text-base font-semibold" style={{ color: c.ink }}>Auto-repay</span>
+        <div className="fade-up mt-6 mb-6 px-8 py-8" style={{ background: c.heroCard, boxShadow: c.cardShadow, borderRadius: "48px", animationDelay: "60ms" }}>
+          <div className="flex items-start justify-between mb-1">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: on ? c.greenSoft : c.chip, color: on ? c.green : c.inkFaint }}>
+                  <Zap size={14} />
+                </span>
+                <span className="text-base font-semibold" style={{ color: c.ink }}>Auto-repay</span>
+              </div>
+              <div className="text-xs" style={{ color: c.inkSoft }}>Repays USDC from idle balance if triggered</div>
             </div>
-            <div className="text-xs" style={{ color: c.inkSoft }}>Repays USDC from idle balance if triggered</div>
+            <AutomationSwitch c={c} on={on} onToggle={toggle} />
           </div>
-          <AutomationSwitch c={c} on={on} onToggle={() => setOn(!on)} />
+
+          <div className="flex items-center gap-2 mt-5 mb-6">
+            <span className="w-2 h-2 rounded-full" style={{ background: on ? c.green : c.inkFaint }} />
+            <span className="font-num-display text-lg" style={{ color: on ? c.green : c.inkFaint }}>{on ? "Active" : "Inactive"}</span>
+            <span className="text-xs" style={{ color: c.inkSoft }}>— current health factor {currentHF}</span>
+          </div>
+
+          <div className="liquid-glass flex items-center justify-between px-5 py-4" style={{ borderRadius: "999px" }}>
+            <div>
+              <div className="font-medium uppercase tracking-wide mb-0.5" style={{ color: c.inkFaint, fontSize: "10px" }}>Trigger below</div>
+              <div className="text-xs" style={{ color: c.inkSoft }}>Health factor threshold</div>
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <input
+                value={threshold}
+                onChange={(e) => setThreshold(sanitizeDecimal(e.target.value))}
+                inputMode="decimal"
+                className="font-num-display bg-transparent outline-none text-right"
+                style={{ color: c.ink, fontSize: "1.5rem", width: "4.5ch", minWidth: "4.5ch" }}
+              />
+              <span className="text-xs" style={{ color: c.inkSoft }}>HF</span>
+            </div>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 mt-5 mb-6">
-          <span className="w-2 h-2 rounded-full" style={{ background: on ? c.green : c.inkFaint }} />
-          <span className="font-num-display text-lg" style={{ color: on ? c.green : c.inkFaint }}>{on ? "Active" : "Inactive"}</span>
-          <span className="text-xs" style={{ color: c.inkSoft }}>— current health factor {currentHF}</span>
+        <div className="fade-up liquid-glass flex items-center gap-3 px-6 py-4" style={{ borderRadius: "28px", animationDelay: "120ms" }}>
+          <ShieldCheck size={16} style={{ color: c.inkSoft }} />
+          <p className="text-xs" style={{ color: c.inkSoft }}>
+            The trigger check runs inside Nox on your encrypted position. Nobody, including hýdan, sees the comparison happen.
+          </p>
         </div>
-
-        <div className="liquid-glass flex items-center justify-between px-5 py-4" style={{ borderRadius: "999px" }}>
-          <div>
-            <div className="font-medium uppercase tracking-wide mb-0.5" style={{ color: c.inkFaint, fontSize: "10px" }}>Trigger below</div>
-            <div className="text-xs" style={{ color: c.inkSoft }}>Health factor threshold</div>
-          </div>
-          <div className="flex items-baseline gap-1.5">
-            <input
-              value={threshold}
-              onChange={(e) => setThreshold(e.target.value)}
-              inputMode="decimal"
-              className="font-num-display bg-transparent outline-none text-right"
-              style={{ color: c.ink, fontSize: "1.5rem", width: "4.5ch", minWidth: "4.5ch" }}
-            />
-            <span className="text-xs" style={{ color: c.inkSoft }}>HF</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="fade-up liquid-glass flex items-center gap-3 px-6 py-4" style={{ borderRadius: "28px", animationDelay: "120ms" }}>
-        <ShieldCheck size={16} style={{ color: c.inkSoft }} />
-        <p className="text-xs" style={{ color: c.inkSoft }}>
-          The trigger check runs inside Nox on your encrypted position. Nobody, including hýdan, sees the comparison happen.
-        </p>
       </div>
     </main>
+  );
+}
+
+/* ---------------------------------------------------------------------
+   App shell
+--------------------------------------------------------------------- */
+function Toast({ c, message }) {
+  if (!message) return null;
+  return (
+    <div className="fixed bottom-8 left-1/2 z-50 fade-up" style={{ transform: "translateX(-50%)" }}>
+      <div
+        className="liquid-glass flex items-center gap-2.5 px-5 py-3"
+        style={{ borderRadius: "999px", boxShadow: c.cardShadow }}
+      >
+        <CheckCircle2 size={15} style={{ color: c.green }} />
+        <span className="text-sm font-medium" style={{ color: c.ink }}>{message}</span>
+      </div>
+    </div>
   );
 }
 
 export default function HydanApp() {
   useGoogleFonts();
   const [theme, setTheme] = useState("dark");
+  const [connected, setConnected] = useState(false);
   const [screen, setScreen] = useState("vault");
+  const [toast, setToast] = useState(null);
   const c = PALETTES[theme];
-  const { address } = useAccount();
-  const publicClient = usePublicClient();
-  const { connect, connectors } = useConnect();
-  const { disconnect } = useDisconnect();
 
-  const vaultAddress = useVaultAddress();
-  const { data: totalAssetsRaw } = useVaultTotalAssets();
-  const { data: healthStatus } = useVaultHealthStatus();
-  const { data: userWethBalance } = useUserWethBalance(address);
-  const { data: aaveData } = useVaultAaveData(vaultAddress);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2600);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  function notify(message) {
+    setToast(message);
+  }
 
   function handleConnect() {
-    connect({ connector: connectors[0] });
+    setConnected(true);
+    setScreen("vault");
+    notify("Wallet connected");
+  }
+
+  function handleDisconnect() {
+    setConnected(false);
+    setScreen("vault");
+    notify("Wallet disconnected");
   }
 
   return (
@@ -815,24 +829,26 @@ export default function HydanApp() {
           c={c}
           theme={theme}
           onToggle={() => setTheme(theme === "light" ? "dark" : "light")}
-          address={address}
+          connected={connected}
           screen={screen}
           onNavigate={setScreen}
-          onDisconnect={() => { disconnect(); setScreen("vault"); }}
+          onDisconnect={handleDisconnect}
         />
 
-        {!address && <LandingScreen c={c} onConnect={handleConnect} healthStatusHandle={healthStatus} />}
-        {address && screen === "vault" && <VaultScreen c={c} aaveData={aaveData} totalAssetsRaw={totalAssetsRaw} userWethBalance={userWethBalance} address={address} vaultAddress={vaultAddress} />}
-        {address && screen === "explorer" && <ExplorerScreen c={c} aaveData={aaveData} vaultAddress={vaultAddress} />}
-        {address && screen === "automation" && <AutomationScreen c={c} aaveData={aaveData} />}
+        {!connected && <LandingScreen c={c} onConnect={handleConnect} />}
+        {connected && screen === "vault" && <VaultScreen c={c} onNotify={notify} />}
+        {connected && screen === "explorer" && <ExplorerScreen c={c} />}
+        {connected && screen === "automation" && <AutomationScreen c={c} onNotify={notify} />}
 
-        {!address && <LandingFooter c={c} />}
-        {address && (
+        {!connected && <LandingFooter c={c} />}
+        {connected && (
           <footer className="px-6 py-6 text-center">
             <span className="font-num" style={{ color: c.inkFaint, fontSize: "11px" }}>Built on Nox × Aave — Sepolia testnet</span>
           </footer>
         )}
       </div>
+
+      <Toast c={c} message={toast} />
     </div>
   );
 }
