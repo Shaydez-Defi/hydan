@@ -1,4 +1,5 @@
-import { useReadContract, useWriteContract, useAccount } from 'wagmi';
+import { useState, useEffect } from 'react';
+import { useReadContract, useWriteContract, useAccount, usePublicClient, useWatchContractEvent } from 'wagmi';
 import vaultAbi from './abi/HydanVault.json';
 
 const VAULT = '0x394fdd9013a55da0280ffd33c9e008878490a4d6';
@@ -137,4 +138,94 @@ export function useVaultRepay() {
 
 export function useTokenApprove() {
   return useWriteContract();
+}
+
+const EVENT_NAMES = ['Deposited', 'Withdrawn', 'Borrowed', 'Repaid'];
+const TYPE_MAP = { Deposited: 'deposit', Withdrawn: 'withdraw', Borrowed: 'borrow', Repaid: 'repay' };
+
+function normalizeLog(log, ts) {
+  return {
+    type: TYPE_MAP[log.eventName] || log.eventName,
+    assets: log.args.assets,
+    blockNumber: Number(log.blockNumber),
+    txHash: log.transactionHash,
+    timestamp: ts || 0,
+  };
+}
+
+export function useVaultActivity(address) {
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const publicClient = usePublicClient();
+
+  useEffect(() => {
+    if (!address || !publicClient) return;
+    let cancelled = false;
+    setLoading(true);
+
+    async function fetch() {
+      try {
+        const logs = await publicClient.getContractEvents({
+          address: VAULT, abi: vaultAbi,
+          eventName: EVENT_NAMES,
+          args: { user: address },
+          fromBlock: 0n,
+        });
+        if (cancelled) return;
+        const blockNums = [...new Set(logs.map(l => l.blockNumber))];
+        const blocks = await Promise.all(
+          blockNums.map(n => publicClient.getBlock({ blockNumber: n }))
+        );
+        const tsByBlock = {};
+        blockNums.forEach((n, i) => { tsByBlock[Number(n)] = Number(blocks[i].timestamp); });
+        setEvents(logs.map(l => normalizeLog(l, tsByBlock[Number(l.blockNumber)]))
+          .sort((a, b) => b.blockNumber - a.blockNumber));
+      } catch {
+        try {
+          const block = await publicClient.getBlockNumber();
+          const logs = await publicClient.getContractEvents({
+            address: VAULT, abi: vaultAbi,
+            eventName: EVENT_NAMES,
+            args: { user: address },
+            fromBlock: block - 5000n,
+          });
+          if (cancelled) return;
+          const blockNums = [...new Set(logs.map(l => l.blockNumber))];
+          const blocks = await Promise.all(
+            blockNums.map(n => publicClient.getBlock({ blockNumber: n }))
+          );
+          const tsByBlock = {};
+          blockNums.forEach((n, i) => { tsByBlock[Number(n)] = Number(blocks[i].timestamp); });
+          setEvents(logs.map(l => normalizeLog(l, tsByBlock[Number(l.blockNumber)]))
+            .sort((a, b) => b.blockNumber - a.blockNumber));
+        } catch { /* no events found */ }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    fetch();
+    return () => { cancelled = true; };
+  }, [address, publicClient]);
+
+  useWatchContractEvent({
+    address: VAULT, abi: vaultAbi,
+    eventName: EVENT_NAMES,
+    args: { user: address },
+    onLogs(logs) {
+      const now = Math.floor(Date.now() / 1000);
+      const fresh = logs.map(l => normalizeLog(l, now));
+      setEvents(prev => {
+        const merged = [...fresh, ...prev];
+        const seen = new Set();
+        return merged.filter(e => {
+          if (seen.has(e.txHash)) return false;
+          seen.add(e.txHash);
+          return true;
+        }).sort((a, b) => b.blockNumber - a.blockNumber);
+      });
+    },
+    enabled: !!address,
+  });
+
+  return { events, loading };
 }

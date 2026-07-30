@@ -23,7 +23,9 @@ import {
   useVaultHealthStatus,
   useUserWethBalance,
   useVaultAaveData,
+  useVaultActivity,
 } from "./hooks.js";
+import ActivityFeed from "./ActivityFeed.jsx";
 import vaultAbi from "./abi/HydanVault.json";
 
 const WETH = "0xC558DBdd856501FCd9aaF1E62eae57A9F0629a3c";
@@ -542,6 +544,7 @@ function ActionModal({ c, action, onClose, address, vaultAddress }) {
 
 function VaultScreen({ c, aaveData, totalAssetsRaw, userWethBalance, address, vaultAddress }) {
   const [openAction, setOpenAction] = useState(null);
+  const { events, loading } = useVaultActivity(address);
 
   const maxUintHalf = 2n ** 255n;
   const hf = aaveData ? aaveData[5] : null;
@@ -575,48 +578,56 @@ function VaultScreen({ c, aaveData, totalAssetsRaw, userWethBalance, address, va
         <p className="text-sm mt-1" style={{ color: c.inkSoft }}>Hover to reveal your numbers.</p>
       </div>
 
-      <div className="fade-up px-8 py-8 mt-6 mb-10" style={{ background: c.heroCard, boxShadow: c.cardShadow, animationDelay: "60ms", borderRadius: "56px" }}>
-        <div className="flex items-start justify-between mb-1">
-          <div>
-            <div className="text-base font-semibold" style={{ color: c.ink }}>Health factor</div>
-            <div className="text-xs" style={{ color: c.inkSoft }}>Collateral minus debt exposure</div>
+      <div className="flex flex-col lg:flex-row lg:gap-6">
+        <div className="lg:w-[60%]">
+          <div className="fade-up px-8 py-8 mt-6 mb-10" style={{ background: c.heroCard, boxShadow: c.cardShadow, animationDelay: "60ms", borderRadius: "56px" }}>
+            <div className="flex items-start justify-between mb-1">
+              <div>
+                <div className="text-base font-semibold" style={{ color: c.ink }}>Health factor</div>
+                <div className="text-xs" style={{ color: c.inkSoft }}>Collateral minus debt exposure</div>
+              </div>
+              <span className="inline-flex items-center justify-center w-9 h-9 rounded-full" style={{ background: isHealthy ? c.greenSoft : c.carmineSoft, color: isHealthy ? c.green : c.carmine }}>
+                {isHealthy ? <ShieldCheck size={16} /> : <ShieldAlert size={16} />}
+              </span>
+            </div>
+
+            <div className="reveal-group flex flex-col lg:flex-row lg:items-end lg:justify-between lg:gap-8">
+              <div className="reveal-mask mt-3 mb-5 lg:mb-0 lg:mt-3 shrink-0">
+                <span className="font-num-display text-4xl lg:text-5xl" style={{ color: isHealthy ? c.green : c.carmine }} tabIndex={0}>
+                  {fmtHf()}
+                </span>
+              </div>
+              <div className="flex gap-3 lg:flex-1 lg:max-w-md">
+                <div className="reveal-mask flex-1 rounded-full px-5 py-3" style={{ background: c.chip }}>
+                  <div className="font-medium uppercase tracking-wide mb-0.5" style={{ color: c.inkFaint, fontSize: "10px" }}>Collateral</div>
+                  <div className="font-num-display text-base" style={{ color: c.ink }}>{fmtEth(collateral)} <span className="text-xs font-medium" style={{ color: c.inkSoft }}>ETH</span></div>
+                </div>
+                <div className="reveal-mask flex-1 rounded-full px-5 py-3" style={{ background: c.chip }}>
+                  <div className="font-medium uppercase tracking-wide mb-0.5" style={{ color: c.inkFaint, fontSize: "10px" }}>Debt</div>
+                  <div className="font-num-display text-base" style={{ color: c.ink }}>{fmtBase(debt)} <span className="text-xs font-medium" style={{ color: c.inkSoft }}>ETH</span></div>
+                </div>
+              </div>
+            </div>
+
+            <p className="text-xs mt-4" style={{ color: c.inkFaint }}>
+              Publicly, this vault only ever shows as <span style={{ color: isHealthy ? c.green : c.carmine }}>{isHealthy ? "healthy" : "at risk"}</span>.
+            </p>
           </div>
-          <span className="inline-flex items-center justify-center w-9 h-9 rounded-full" style={{ background: isHealthy ? c.greenSoft : c.carmineSoft, color: isHealthy ? c.green : c.carmine }}>
-            {isHealthy ? <ShieldCheck size={16} /> : <ShieldAlert size={16} />}
-          </span>
+
+          <h2 className="fade-up text-sm font-semibold mb-3" style={{ color: c.ink, animationDelay: "220ms" }}>Manage position</h2>
+          <div className="flex flex-wrap gap-3">
+            {actions.map((a, i) => (
+              <ActionCard key={a.key} c={c} action={a} onOpen={setOpenAction} delay={`${260 + i * 40}ms`} />
+            ))}
+          </div>
+
+          {openAction && <ActionModal c={c} action={actions.find((a) => a.key === openAction)} onClose={() => setOpenAction(null)} address={address} vaultAddress={vaultAddress} />}
         </div>
 
-        <div className="reveal-group flex flex-col lg:flex-row lg:items-end lg:justify-between lg:gap-8">
-          <div className="reveal-mask mt-3 mb-5 lg:mb-0 lg:mt-3 shrink-0">
-            <span className="font-num-display text-4xl lg:text-5xl" style={{ color: isHealthy ? c.green : c.carmine }} tabIndex={0}>
-              {fmtHf()}
-            </span>
-          </div>
-          <div className="flex gap-3 lg:flex-1 lg:max-w-md">
-            <div className="reveal-mask flex-1 rounded-full px-5 py-3" style={{ background: c.chip }}>
-              <div className="font-medium uppercase tracking-wide mb-0.5" style={{ color: c.inkFaint, fontSize: "10px" }}>Collateral</div>
-              <div className="font-num-display text-base" style={{ color: c.ink }}>{fmtEth(collateral)} <span className="text-xs font-medium" style={{ color: c.inkSoft }}>ETH</span></div>
-            </div>
-            <div className="reveal-mask flex-1 rounded-full px-5 py-3" style={{ background: c.chip }}>
-              <div className="font-medium uppercase tracking-wide mb-0.5" style={{ color: c.inkFaint, fontSize: "10px" }}>Debt</div>
-              <div className="font-num-display text-base" style={{ color: c.ink }}>{fmtBase(debt)} <span className="text-xs font-medium" style={{ color: c.inkSoft }}>ETH</span></div>
-            </div>
-          </div>
+        <div className="mt-6 lg:mt-[68px] lg:w-[40%]">
+          <ActivityFeed c={c} events={events} loading={loading} />
         </div>
-
-        <p className="text-xs mt-4" style={{ color: c.inkFaint }}>
-          Publicly, this vault only ever shows as <span style={{ color: isHealthy ? c.green : c.carmine }}>{isHealthy ? "healthy" : "at risk"}</span>.
-        </p>
       </div>
-
-      <h2 className="fade-up text-sm font-semibold mb-3" style={{ color: c.ink, animationDelay: "220ms" }}>Manage position</h2>
-      <div className="flex flex-wrap gap-3">
-        {actions.map((a, i) => (
-          <ActionCard key={a.key} c={c} action={a} onOpen={setOpenAction} delay={`${260 + i * 40}ms`} />
-        ))}
-      </div>
-
-      {openAction && <ActionModal c={c} action={actions.find((a) => a.key === openAction)} onClose={() => setOpenAction(null)} address={address} vaultAddress={vaultAddress} />}
     </main>
   );
 }
