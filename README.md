@@ -2,6 +2,8 @@
 
 Private lending vault: Nox-encrypted share and debt balances on top of an Aave V3 pool. Users deposit WETH and borrow USDC without exposing position sizes on-chain. Deployed on Ethereum Sepolia.
 
+![hydan vault](assets/vault.png)
+
 ## Deployed
 
 | Item             | Address                                      |
