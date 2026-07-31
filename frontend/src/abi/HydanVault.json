@@ -10,10 +10,26 @@
         "internalType": "address",
         "name": "_aavePoolAddressesProvider",
         "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_debtAsset",
+        "type": "address"
       }
     ],
     "stateMutability": "nonpayable",
     "type": "constructor"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes",
+        "name": "data",
+        "type": "bytes"
+      }
+    ],
+    "name": "MalformedDecryptedData",
+    "type": "error"
   },
   {
     "inputs": [
@@ -37,15 +53,15 @@
       },
       {
         "indexed": false,
-        "internalType": "uint256",
-        "name": "assets",
-        "type": "uint256"
+        "internalType": "euint256",
+        "name": "amount",
+        "type": "bytes32"
       },
       {
         "indexed": false,
-        "internalType": "uint16",
+        "internalType": "uint256",
         "name": "interestRateMode",
-        "type": "uint16"
+        "type": "uint256"
       }
     ],
     "name": "Borrowed",
@@ -59,12 +75,6 @@
         "internalType": "address",
         "name": "user",
         "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "assets",
-        "type": "uint256"
       },
       {
         "indexed": false,
@@ -106,15 +116,9 @@
       },
       {
         "indexed": false,
-        "internalType": "uint256",
+        "internalType": "euint256",
         "name": "assets",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint16",
-        "name": "interestRateMode",
-        "type": "uint16"
+        "type": "bytes32"
       }
     ],
     "name": "Repaid",
@@ -150,9 +154,22 @@
       },
       {
         "indexed": false,
-        "internalType": "uint256",
-        "name": "assets",
-        "type": "uint256"
+        "internalType": "ebool",
+        "name": "approval",
+        "type": "bytes32"
+      }
+    ],
+    "name": "WithdrawPrepared",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
       },
       {
         "indexed": false,
@@ -238,14 +255,24 @@
   {
     "inputs": [
       {
-        "internalType": "uint256",
-        "name": "assets",
-        "type": "uint256"
+        "internalType": "address",
+        "name": "_asset",
+        "type": "address"
       },
       {
-        "internalType": "uint16",
+        "internalType": "externalEuint256",
+        "name": "encryptedAmount",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes",
+        "name": "decryptionProof",
+        "type": "bytes"
+      },
+      {
+        "internalType": "uint256",
         "name": "interestRateMode",
-        "type": "uint16"
+        "type": "uint256"
       },
       {
         "internalType": "uint16",
@@ -261,6 +288,38 @@
     "name": "borrow",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "debtAsset",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "debtOf",
+    "outputs": [
+      {
+        "internalType": "euint256",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -298,6 +357,55 @@
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "maxWithdrawable",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "externalEuint256",
+        "name": "encryptedAmount",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes",
+        "name": "inputProof",
+        "type": "bytes"
+      }
+    ],
+    "name": "prepareBorrow",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "assets",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "onBehalfOf",
+        "type": "address"
+      }
+    ],
+    "name": "prepareWithdraw",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -339,16 +447,34 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "priceOracle",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
+      {
+        "internalType": "address",
+        "name": "_asset",
+        "type": "address"
+      },
       {
         "internalType": "uint256",
         "name": "assets",
         "type": "uint256"
       },
       {
-        "internalType": "uint16",
+        "internalType": "uint256",
         "name": "interestRateMode",
-        "type": "uint16"
+        "type": "uint256"
       },
       {
         "internalType": "address",
@@ -439,6 +565,11 @@
   {
     "inputs": [
       {
+        "internalType": "bytes",
+        "name": "approvalProof",
+        "type": "bytes"
+      },
+      {
         "internalType": "uint256",
         "name": "assets",
         "type": "uint256"
@@ -455,14 +586,27 @@
       }
     ],
     "name": "withdraw",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "withdrawApproval",
     "outputs": [
       {
-        "internalType": "euint256",
-        "name": "shares",
+        "internalType": "ebool",
+        "name": "",
         "type": "bytes32"
       }
     ],
-    "stateMutability": "nonpayable",
+    "stateMutability": "view",
     "type": "function"
   }
 ]

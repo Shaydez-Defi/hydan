@@ -18,6 +18,7 @@ const WETH = '0xC558DBdd856501FCd9aaF1E62eae57A9F0629a3c';
 const POOL_ADDRESSES_PROVIDER = '0x012bAC54348C0E635dCAc9D5FB99f06F24136C9A';
 const POOL = '0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951';
 const DATA_PROVIDER = '0x3e9708d80f7B3e43118013075F7e95CE3AB31F31';
+const USDC = '0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8';
 
 async function main() {
   // Deploy HydanVault
@@ -25,7 +26,8 @@ async function main() {
   const hash = await walletClient.deployContract({
     abi: artifact.abi,
     bytecode: artifact.bytecode,
-    args: [WETH, POOL_ADDRESSES_PROVIDER],
+    args: [WETH, POOL_ADDRESSES_PROVIDER, USDC],
+    gas: 2000000n,
   });
   console.log('Deploy tx:', hash);
   const receipt = await publicClient.waitForTransactionReceipt({ hash });

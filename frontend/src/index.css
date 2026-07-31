@@ -39,6 +39,13 @@
   .input {
     @apply w-full bg-transparent border border-border px-3 py-2 text-white text-sm outline-none focus:border-white transition-colors;
   }
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
   .stat-value {
     @apply font-numeric text-2xl tracking-tight;
   }

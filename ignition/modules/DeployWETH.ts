@@ -7,14 +7,15 @@ const DeployWETHModule = buildModule("DeployWETHModule", (m) => {
     "aavePoolAddressesProvider",
     AaveV3Sepolia.POOL_ADDRESSES_PROVIDER
   );
+  const debtAsset = m.getParameter("debtAsset", AaveV3Sepolia.ASSETS.USDC.UNDERLYING);
 
-  const hydanVault = m.contract("HydanVault", [asset, aavePoolAddressesProvider], {
+  const hydanVault = m.contract("HydanVault", [asset, aavePoolAddressesProvider, debtAsset], {
     id: "HydanVaultWETH",
   });
 
   // Set aavePool on vault using PoolAddressesProvider.getPool()
   const poolAddressesProvider = m.contractAt("IPoolAddressesProvider", aavePoolAddressesProvider);
-  const poolAddress = m.call(poolAddressesProvider, "getPool", [], {
+  const poolAddress = m.staticCall(poolAddressesProvider, "getPool", [], 0, {
     id: "GetPool",
   });
   m.call(hydanVault, "setAavePool", [poolAddress], {
@@ -24,9 +25,8 @@ const DeployWETHModule = buildModule("DeployWETHModule", (m) => {
 
   // Get aToken address from ProtocolDataProvider
   const dataProvider = m.contractAt("IProtocolDataProvider", AaveV3Sepolia.AAVE_PROTOCOL_DATA_PROVIDER);
-  const [aTokenAddress] = m.call(dataProvider, "getReserveTokensAddresses", [asset], {
+  const aTokenAddress = m.staticCall(dataProvider, "getReserveTokensAddresses", [asset], 0, {
     id: "GetAToken",
-    returnIndex: 0,
   });
 
   // Set aToken on vault

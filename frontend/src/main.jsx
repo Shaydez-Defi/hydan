@@ -10,7 +10,7 @@ import './index.css';
 const config = createConfig({
   chains: [sepolia],
   connectors: [injected()],
-  transports: { [sepolia.id]: http() },
+  transports: { [sepolia.id]: http(import.meta.env.VITE_SEPOLIA_RPC_URL) },
 });
 
 const queryClient = new QueryClient();

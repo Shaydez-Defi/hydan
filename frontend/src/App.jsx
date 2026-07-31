@@ -1,7 +1,9 @@
 import { useState, useEffect } from "react";
-import { useAccount, useConnect, useDisconnect } from "wagmi";
-import { parseEther } from "viem";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAccount, useConnect, useDisconnect, useWalletClient } from "wagmi";
+import { parseEther, parseUnits } from "viem";
 import { useWriteContract, useReadContract, usePublicClient } from "wagmi";
+import { createViemHandleClient } from "@iexec-nox/handle";
 import {
   Moon,
   Sun,
@@ -22,10 +24,12 @@ import {
 import {
   useVaultAddress,
   useVaultTotalAssets,
+  useVaultMaxWithdrawable,
   useVaultHealthStatus,
   useUserWethBalance,
   useVaultAaveData,
   useVaultActivity,
+  USDC,
 } from "./hooks.js";
 import ActivityFeed from "./ActivityFeed.jsx";
 import vaultAbi from "./abi/HydanVault.json";
@@ -441,7 +445,7 @@ function LandingScreen({ c, onConnect, healthStatusHandle }) {
 /* ---------------------------------------------------------------------
    Vault
 --------------------------------------------------------------------- */
-function buildActions(aaveData, userWethBalance, totalAssetsRaw) {
+function buildActions(aaveData, userWethBalance, totalAssetsRaw, maxWithdrawableRaw) {
   const eth = (wei) => {
     if (!wei || wei === 0n) return "0";
     const num = Number(wei) / 1e18;
@@ -457,11 +461,11 @@ function buildActions(aaveData, userWethBalance, totalAssetsRaw) {
   const depositMax = userWethBalance || 0n;
   const borrowMax = aaveData ? aaveData[2] : 0n;
   const repayMax = aaveData ? aaveData[1] : 0n;
-  const withdrawMax = totalAssetsRaw || 0n;
+  const withdrawMax = maxWithdrawableRaw ?? totalAssetsRaw ?? 0n;
   return [
     { key: "deposit", icon: Landmark, label: "Deposit", unit: "ETH", verb: "Deposit", tone: "green", helper: "Add collateral", max: eth(depositMax), hfAfter: "—" },
-    { key: "borrow", icon: CircleDollarSign, label: "Borrow", unit: "ETH", verb: "Borrow", tone: "carmine", helper: "Draw more debt", max: base(borrowMax), hfAfter: "—" },
-    { key: "repay", icon: ShieldCheck, label: "Repay", unit: "ETH", verb: "Repay", tone: "green", helper: "Pay down debt", max: base(repayMax), hfAfter: "—" },
+    { key: "borrow", icon: CircleDollarSign, label: "Borrow", unit: "USDC", verb: "Borrow", tone: "carmine", helper: "Draw more debt", max: base(borrowMax), hfAfter: "—" },
+    { key: "repay", icon: ShieldCheck, label: "Repay", unit: "USDC", verb: "Repay", tone: "green", helper: "Pay down debt", max: base(repayMax), hfAfter: "—" },
     { key: "withdraw", icon: Unlock, label: "Withdraw", unit: "ETH", verb: "Withdraw", tone: "carmine", helper: "Free collateral", max: eth(withdrawMax), hfAfter: "—" },
   ];
 }
@@ -483,11 +487,13 @@ function ActionCard({ c, action, onOpen, delay }) {
   );
 }
 
-function ActionModal({ c, action, onClose, address, vaultAddress, showToast }) {
+function ActionModal({ c, action, onClose, address, vaultAddress, showToast, refetchActivity }) {
   const [amount, setAmount] = useState("");
   const [status, setStatus] = useState(null);
   const { writeContractAsync } = useWriteContract();
   const publicClient = usePublicClient();
+  const { data: walletClient } = useWalletClient();
+  const queryClient = useQueryClient();
   const { data: allowance } = useReadContract({
     address: WETH, abi: erc20Abi, functionName: "allowance",
     args: [address, vaultAddress],
@@ -498,12 +504,21 @@ function ActionModal({ c, action, onClose, address, vaultAddress, showToast }) {
     args: [address],
     query: { enabled: !!address },
   });
+  const { data: usdcAllowance } = useReadContract({
+    address: USDC, abi: erc20Abi, functionName: "allowance",
+    args: [address, vaultAddress],
+    query: { enabled: !!address && !!vaultAddress },
+  });
 
   if (!action) return null;
   const Icon = action.icon;
 
   const weiAmount = (() => {
     try { return parseEther(amount || "0"); } catch { return 0n; }
+  })();
+
+  const usdcAmount = (() => {
+    try { return parseUnits(amount || "0", 6); } catch { return 0n; }
   })();
 
   async function submit() {
@@ -531,31 +546,112 @@ function ActionModal({ c, action, onClose, address, vaultAddress, showToast }) {
           await publicClient.waitForTransactionReceipt({ hash: approveHash });
         }
         setStatus("pending");
-        await writeContractAsync({
+        const depositHash = await writeContractAsync({
           address: vaultAddress, abi: vaultAbi, functionName: "deposit",
           args: [weiAmount, address],
           gas: 800000n,
         });
+        await publicClient.waitForTransactionReceipt({ hash: depositHash });
         showToast(`${amount} ETH deposited`);
+        onClose();
       } else if (action.key === "borrow") {
-        await writeContractAsync({
+        if (!walletClient) throw new Error("Wallet not connected");
+        setStatus("encrypting");
+        const handleClient = await createViemHandleClient(walletClient);
+        const { handle, handleProof } = await handleClient.encryptInput(
+          usdcAmount, 'uint256', vaultAddress,
+        );
+        setStatus("preparing");
+        const prepHash = await writeContractAsync({
+          address: vaultAddress, abi: vaultAbi, functionName: "prepareBorrow",
+          args: [handle, handleProof], gas: 200000n,
+        });
+        await publicClient.waitForTransactionReceipt({ hash: prepHash });
+        setStatus("waiting");
+        const saltArr = new Uint8Array(32);
+        crypto.getRandomValues(saltArr);
+        const salt = '0x' + Array.from(saltArr, b => b.toString(16).padStart(2, '0')).join('');
+        let decryptionProof;
+        for (let i = 0; i < 30; i++) {
+          const resp = await fetch('https://gateway-testnets.noxprotocol.dev/v0/public/' + handle + '?salt=' + salt);
+          if (resp.status === 200) {
+            const data = await resp.json();
+            decryptionProof = data.payload.decryptionProof;
+            break;
+          }
+          await new Promise(r => setTimeout(r, 1000));
+        }
+        if (!decryptionProof) throw new Error('Gateway timeout');
+        setStatus("pending");
+        const borrowHash = await writeContractAsync({
           address: vaultAddress, abi: vaultAbi, functionName: "borrow",
-          args: [weiAmount, 2, 0, address],
+          args: [USDC, handle, decryptionProof, 2, 0, address],
+          gas: 800000n,
         });
-        showToast(`${amount} ETH borrowed`);
+        await publicClient.waitForTransactionReceipt({ hash: borrowHash });
+        showToast(`${amount} USDC borrowed`);
+        onClose();
       } else if (action.key === "repay") {
-        await writeContractAsync({
+        if (usdcAllowance < usdcAmount) {
+          setStatus("approving");
+          const approveHash = await writeContractAsync({
+            address: USDC, abi: erc20Abi, functionName: "approve",
+            args: [vaultAddress, usdcAmount],
+          });
+          await publicClient.waitForTransactionReceipt({ hash: approveHash });
+        }
+        setStatus("pending");
+        const repayHash = await writeContractAsync({
           address: vaultAddress, abi: vaultAbi, functionName: "repay",
-          args: [weiAmount, 2, address],
+          args: [USDC, usdcAmount, 2, address],
+          gas: 800000n,
         });
-        showToast(`${amount} ETH repaid`);
+        await publicClient.waitForTransactionReceipt({ hash: repayHash });
+        showToast(`${amount} USDC repaid`);
+        onClose();
       } else if (action.key === "withdraw") {
-        await writeContractAsync({
-          address: vaultAddress, abi: vaultAbi, functionName: "withdraw",
-          args: [weiAmount, address, address],
+        setStatus("preparing");
+        const prepHash = await writeContractAsync({
+          address: vaultAddress, abi: vaultAbi, functionName: "prepareWithdraw",
+          args: [weiAmount, address], gas: 300000n,
         });
+        let receipt = await publicClient.waitForTransactionReceipt({ hash: prepHash });
+        const withdrawPreparedEvent = vaultAbi.find(e => e.name === 'WithdrawPrepared');
+        const logs = await publicClient.getLogs({
+          address: vaultAddress, event: withdrawPreparedEvent,
+          args: { user: address },
+          fromBlock: receipt.blockNumber,
+          toBlock: receipt.blockNumber,
+        });
+        const approvalHandle = logs[0].args.approval;
+        setStatus("waiting");
+        const saltArr = new Uint8Array(32);
+        crypto.getRandomValues(saltArr);
+        const salt = '0x' + Array.from(saltArr, b => b.toString(16).padStart(2, '0')).join('');
+        let decryptionProof;
+        for (let i = 0; i < 30; i++) {
+          const resp = await fetch('https://gateway-testnets.noxprotocol.dev/v0/public/' + approvalHandle + '?salt=' + salt);
+          if (resp.status === 200) {
+            const data = await resp.json();
+            decryptionProof = data.payload.decryptionProof;
+            break;
+          }
+          await new Promise(r => setTimeout(r, 1000));
+        }
+        if (!decryptionProof) throw new Error('Gateway timeout');
+        setStatus("pending");
+        const withdrawHash = await writeContractAsync({
+          address: vaultAddress, abi: vaultAbi, functionName: "withdraw",
+          args: [decryptionProof, weiAmount, address, address],
+          gas: 800000n,
+        });
+        await publicClient.waitForTransactionReceipt({ hash: withdrawHash });
         showToast(`${amount} ETH withdrawn`);
+        onClose();
       }
+      await new Promise(r => setTimeout(r, 1500));
+      queryClient.invalidateQueries();
+      refetchActivity?.();
       setStatus("success");
     } catch (err) {
       const msg = err?.shortMessage || "Transaction failed";
@@ -594,13 +690,13 @@ function ActionModal({ c, action, onClose, address, vaultAddress, showToast }) {
             </button>
             <button
               onClick={submit}
-              disabled={(status === "pending" || status === "wrapping" || status === "approving") || !amount}
+              disabled={(status === "pending" || status === "wrapping" || status === "approving" || status === "encrypting" || status === "preparing" || status === "waiting") || !amount}
               className="press flex-1 text-sm font-semibold py-2.5 rounded-full flex items-center justify-center gap-1.5"
               style={{ background: c.ctaBg, color: c.ctaText }}
             >
-              {(status === "pending" || status === "wrapping" || status === "approving") && <Loader2 size={14} className="animate-spin" />}
+              {(status === "pending" || status === "wrapping" || status === "approving" || status === "encrypting" || status === "preparing" || status === "waiting") && <Loader2 size={14} className="animate-spin" />}
               {status === "success" && <CheckCircle2 size={14} />}
-              {status === "wrapping" ? "Wrapping ETH" : status === "approving" ? "Approving" : status === "pending" ? "Depositing" : status === "success" ? "Deposited" : action.verb}
+              {status === "wrapping" ? "Wrapping" : status === "approving" ? "Approving" : status === "encrypting" ? "Encrypting" : status === "preparing" ? "Preparing" : status === "waiting" ? "Awaiting proof" : status === "pending" ? action.key === "deposit" ? "Depositing" : action.key === "borrow" ? "Borrowing" : "Processing" : status === "success" ? action.key === "deposit" ? "Deposited" : action.key === "borrow" ? "Borrowed" : "Done" : action.verb}
               {status === "error" && " Retry"}
             </button>
           </div>
@@ -610,19 +706,24 @@ function ActionModal({ c, action, onClose, address, vaultAddress, showToast }) {
   );
 }
 
-function VaultScreen({ c, aaveData, totalAssetsRaw, userWethBalance, address, vaultAddress, showToast }) {
+function VaultScreen({ c, aaveData, totalAssetsRaw, maxWithdrawableRaw, userWethBalance, address, vaultAddress, showToast }) {
   const [openAction, setOpenAction] = useState(null);
-  const { events, loading } = useVaultActivity(address);
+  const { events, loading, refetch } = useVaultActivity(address);
 
   const maxUintHalf = 2n ** 255n;
   const hf = aaveData ? aaveData[5] : null;
-  const isHealthy = !hf || hf > 10n ** 27n;
+  const hfNum = hf && hf < maxUintHalf ? Number(hf) / 1e18 : null;
+  const isDust = (aaveData ? aaveData[0] : 0n) < 100000n && (aaveData ? aaveData[1] : 0n) < 100000n;
+  const isHealthy = isDust || hfNum === null || hfNum > 1.05;
+  const hfLabel = isDust ? 'No position' : hfNum === null ? '∞' : hfNum > 3 ? 'Safe' : hfNum > 1.5 ? 'Moderate' : hfNum > 1.05 ? 'Risky' : 'Liquidation';
+  const hfColor = isDust ? c.inkFaint : hfNum === null ? c.green : hfNum > 3 ? c.green : hfNum > 1.5 ? c.gold : hfNum > 1.05 ? c.orange : c.carmine;
+  const hfBg = isDust ? c.chip : hfNum === null ? c.greenSoft : hfNum > 3 ? c.greenSoft : hfNum > 1.5 ? c.goldSoft : hfNum > 1.05 ? c.orangeSoft : c.carmineSoft;
 
   const fmtHf = () => {
+    if (isDust) return "—";
     if (!hf) return "—";
     if (hf >= maxUintHalf) return "∞";
-    const num = Number(hf) / 1e27;
-    return num.toFixed(2);
+    return hfNum.toFixed(2);
   };
   const fmtEth = (wei) => {
     if (!wei || wei === 0n) return "0";
@@ -637,7 +738,7 @@ function VaultScreen({ c, aaveData, totalAssetsRaw, userWethBalance, address, va
 
   const collateral = totalAssetsRaw || 0n;
   const debt = aaveData ? aaveData[1] : 0n;
-  const actions = buildActions(aaveData, userWethBalance, totalAssetsRaw);
+  const actions = buildActions(aaveData, userWethBalance, totalAssetsRaw, maxWithdrawableRaw);
 
   return (
     <main className="flex-1 w-full px-6 pt-6 pb-14 max-w-6xl mx-auto">
@@ -654,16 +755,17 @@ function VaultScreen({ c, aaveData, totalAssetsRaw, userWethBalance, address, va
                 <div className="text-base font-semibold" style={{ color: c.ink }}>Health factor</div>
                 <div className="text-xs" style={{ color: c.inkSoft }}>Collateral minus debt exposure</div>
               </div>
-              <span className="inline-flex items-center justify-center w-9 h-9 rounded-full" style={{ background: isHealthy ? c.greenSoft : c.carmineSoft, color: isHealthy ? c.green : c.carmine }}>
-                {isHealthy ? <ShieldCheck size={16} /> : <ShieldAlert size={16} />}
+              <span className="inline-flex items-center justify-center w-9 h-9 rounded-full" style={{ background: hfBg, color: hfColor }}>
+                {hfNum === null || hfNum > 1.05 ? <ShieldCheck size={16} /> : <ShieldAlert size={16} />}
               </span>
             </div>
 
             <div className="reveal-group flex flex-col lg:flex-row lg:items-end lg:justify-between lg:gap-8">
               <div className="reveal-mask mt-3 mb-5 lg:mb-0 lg:mt-3 shrink-0">
-                <span className="font-num-display text-4xl lg:text-5xl" style={{ color: isHealthy ? c.green : c.carmine }} tabIndex={0}>
+                <span className="font-num-display text-4xl lg:text-5xl" style={{ color: hfColor }} tabIndex={0}>
                   {fmtHf()}
                 </span>
+                <div className="text-xs font-semibold mt-1 uppercase tracking-wider" style={{ color: hfColor }}>{hfLabel}</div>
               </div>
               <div className="flex gap-3 lg:flex-1 lg:max-w-md">
                 <div className="reveal-mask flex-1 rounded-full px-5 py-3" style={{ background: c.chip }}>
@@ -672,7 +774,7 @@ function VaultScreen({ c, aaveData, totalAssetsRaw, userWethBalance, address, va
                 </div>
                 <div className="reveal-mask flex-1 rounded-full px-5 py-3" style={{ background: c.chip }}>
                   <div className="font-medium uppercase tracking-wide mb-0.5" style={{ color: c.inkFaint, fontSize: "10px" }}>Debt</div>
-                  <div className="font-num-display text-base" style={{ color: c.ink }}>{fmtBase(debt)} <span className="text-xs font-medium" style={{ color: c.inkSoft }}>ETH</span></div>
+                  <div className="font-num-display text-base" style={{ color: c.ink }}>{fmtBase(debt)} <span className="text-xs font-medium" style={{ color: c.inkSoft }}>USDC</span></div>
                 </div>
               </div>
             </div>
@@ -695,7 +797,7 @@ function VaultScreen({ c, aaveData, totalAssetsRaw, userWethBalance, address, va
         </div>
       </div>
 
-      {openAction && <ActionModal c={c} action={actions.find((a) => a.key === openAction)} onClose={() => setOpenAction(null)} address={address} vaultAddress={vaultAddress} showToast={showToast} />}
+      {openAction && <ActionModal c={c} action={actions.find((a) => a.key === openAction)} onClose={() => setOpenAction(null)} address={address} vaultAddress={vaultAddress} showToast={showToast} refetchActivity={refetch} />}
     </main>
   );
 }
@@ -735,7 +837,7 @@ function ExplorerScreen({ c, aaveData, vaultAddress }) {
   const [query, setQuery] = useState("");
 
   const hf = aaveData ? aaveData[5] : null;
-  const isHealthy = !hf || hf > 10n ** 27n;
+  const isHealthy = !hf || hf > 10n ** 18n;
   const vault = {
     id: vaultAddress ? `${vaultAddress.slice(0, 6)}...${vaultAddress.slice(-4)}` : "—",
     status: isHealthy ? "healthy" : "risk",
@@ -807,7 +909,7 @@ function AutomationScreen({ c, aaveData }) {
   const fmtHf = () => {
     if (!hf) return "—";
     if (hf >= 2n ** 255n) return "∞";
-    return (Number(hf) / 1e27).toFixed(2);
+    return (Number(hf) / 1e18).toFixed(2);
   };
   const currentHF = fmtHf();
 
@@ -913,6 +1015,7 @@ export default function HydanApp() {
 
   const vaultAddress = useVaultAddress();
   const { data: totalAssetsRaw } = useVaultTotalAssets();
+  const { data: maxWithdrawableRaw } = useVaultMaxWithdrawable();
   const { data: healthStatus } = useVaultHealthStatus();
   const { data: userWethBalance } = useUserWethBalance(address);
   const { data: aaveData } = useVaultAaveData(vaultAddress);
@@ -937,7 +1040,7 @@ export default function HydanApp() {
         />
 
         {!address && <LandingScreen c={c} onConnect={handleConnect} healthStatusHandle={healthStatus} />}
-        {address && screen === "vault" && <VaultScreen c={c} aaveData={aaveData} totalAssetsRaw={totalAssetsRaw} userWethBalance={userWethBalance} address={address} vaultAddress={vaultAddress} showToast={showToast} />}
+        {address && screen === "vault" && <VaultScreen c={c} aaveData={aaveData} totalAssetsRaw={totalAssetsRaw} maxWithdrawableRaw={maxWithdrawableRaw} userWethBalance={userWethBalance} address={address} vaultAddress={vaultAddress} showToast={showToast} />}
         {address && screen === "explorer" && <ExplorerScreen c={c} aaveData={aaveData} vaultAddress={vaultAddress} />}
         {address && screen === "automation" && <AutomationScreen c={c} aaveData={aaveData} />}
 

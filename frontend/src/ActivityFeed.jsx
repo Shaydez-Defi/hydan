@@ -1,4 +1,4 @@
-import { Landmark, CircleDollarSign, ShieldCheck, Unlock } from "lucide-react";
+import { Landmark, CircleDollarSign, ShieldCheck, Unlock, Lock } from "lucide-react";
 
 const ICONS = {
   deposit: Landmark,
@@ -16,13 +16,15 @@ const LABELS = {
 
 const ICON_STROKE = 1.75;
 
-function fmtAmount(wei) {
-  if (!wei || wei === "0" || wei === 0) return "0 ETH";
-  const num = Number(wei) / 1e18;
+function fmtAmount(wei, unit) {
+  if (!wei || wei === "0" || wei === 0) return "0 " + (unit || "ETH");
+  const divisor = unit === "USDC" ? 1e6 : 1e18;
+  const num = Number(wei) / divisor;
+  const decimals = unit === "USDC" ? 2 : 4;
   const s = num >= 1
-    ? num.toLocaleString(undefined, { maximumFractionDigits: 4 })
-    : num.toFixed(4);
-  return `${s} ETH`;
+    ? num.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
+    : num.toFixed(decimals);
+  return `${s} ${unit || "ETH"}`;
 }
 
 function timeAgo(ts) {
@@ -38,7 +40,7 @@ export default function ActivityFeed({ c, events, loading }) {
   return (
     <div className="fade-up" style={{ animationDelay: "300ms" }}>
       <h2 className="text-sm font-semibold mb-3" style={{ color: c.ink }}>Activity</h2>
-      <div className="liquid-glass px-5 py-4" style={{ borderRadius: "28px", maxHeight: "400px", overflowY: "auto" }}>
+      <div className="liquid-glass px-5 py-4 no-scrollbar" style={{ borderRadius: "28px", maxHeight: "400px", overflowY: "auto" }}>
         {!events || events.length === 0 ? (
           <p className="text-xs py-6 text-center" style={{ color: c.inkFaint }}>
             {loading ? "Loading..." : "No activity yet."}
@@ -61,7 +63,14 @@ export default function ActivityFeed({ c, events, loading }) {
                   </span>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-semibold" style={{ color: c.ink }}>{LABELS[ev.type] || ev.type}</div>
-                    <div className="font-num text-xs" style={{ color: c.inkSoft }}>{fmtAmount(ev.assets)}</div>
+                    {ev.assets ? (
+                      <div className="font-num text-xs" style={{ color: c.inkSoft }}>{fmtAmount(ev.assets, ev.unit)}</div>
+                    ) : (
+                      <div className="font-num text-xs flex items-center gap-1" style={{ color: c.inkSoft }}>
+                        <Lock size={10} strokeWidth={2} />
+                        Encrypted
+                      </div>
+                    )}
                   </div>
                   <div className="text-xs shrink-0" style={{ color: c.inkFaint }}>{timeAgo(ev.timestamp)}</div>
                 </div>

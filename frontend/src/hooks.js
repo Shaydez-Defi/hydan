@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
-import { useReadContract, useWriteContract, useAccount, usePublicClient, useWatchContractEvent } from 'wagmi';
+import { useReadContract, useWriteContract, useAccount, usePublicClient, useWatchContractEvent, useWalletClient } from 'wagmi';
+import { createViemHandleClient } from '@iexec-nox/handle';
 import vaultAbi from './abi/HydanVault.json';
 
-const VAULT = '0x394fdd9013a55da0280ffd33c9e008878490a4d6';
+const VAULT = '0xb05c9770e926bf193f1d69a4490591ab18e6a12a';
 const WETH = '0xC558DBdd856501FCd9aaF1E62eae57A9F0629a3c';
+export const USDC = '0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8';
 
 const erc20Abi = [
   { inputs: [{ name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' }], name: 'approve', outputs: [{ type: 'bool' }], stateMutability: 'nonpayable', type: 'function' },
@@ -38,6 +40,10 @@ export function useVaultTotalShares() {
 
 export function useVaultTotalAssets() {
   return useReadContract({ address: VAULT, abi: vaultAbi, functionName: 'totalAssets' });
+}
+
+export function useVaultMaxWithdrawable() {
+  return useReadContract({ address: VAULT, abi: vaultAbi, functionName: 'maxWithdrawable' });
 }
 
 export function useVaultHealthStatus() {
@@ -140,23 +146,67 @@ export function useTokenApprove() {
   return useWriteContract();
 }
 
-const EVENT_NAMES = ['Deposited', 'Withdrawn', 'Borrowed', 'Repaid'];
-const TYPE_MAP = { Deposited: 'deposit', Withdrawn: 'withdraw', Borrowed: 'borrow', Repaid: 'repay' };
+const TYPE_UNIT = { deposit: 'ETH', withdraw: 'ETH', borrow: 'USDC', repay: 'USDC' };
 
-function normalizeLog(log, ts) {
+function normalizeLog(log, ts, value) {
+  const type = log.eventName === 'Deposited' ? 'deposit'
+    : log.eventName === 'Withdrawn' ? 'withdraw'
+    : log.eventName === 'Borrowed' ? 'borrow'
+    : log.eventName === 'Repaid' ? 'repay'
+    : 'unknown';
   return {
-    type: TYPE_MAP[log.eventName] || log.eventName,
-    assets: log.args.assets.toString(),
+    type,
+    unit: TYPE_UNIT[type] || '',
+    assets: value !== null && value !== undefined ? value.toString() : null,
     blockNumber: Number(log.blockNumber),
     txHash: log.transactionHash,
     timestamp: ts || 0,
   };
 }
 
+function mergeEvents(prev, fresh) {
+  const prevArr = Array.isArray(prev) ? prev : [];
+  const merged = [...fresh, ...prevArr];
+  const seen = new Set();
+  return merged.filter(e => {
+    if (seen.has(e.txHash)) return false;
+    seen.add(e.txHash);
+    return true;
+  }).sort((a, b) => b.blockNumber - a.blockNumber);
+}
+
 export function useVaultActivity(address) {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [refetchTrigger, setRefetchTrigger] = useState(0);
   const publicClient = usePublicClient();
+  const { data: walletClient } = useWalletClient();
+
+  async function decryptHandle(handle) {
+    try {
+      if (!walletClient || !handle) return null;
+      const handleClient = await createViemHandleClient(walletClient);
+      const res = await handleClient.publicDecrypt(handle);
+      return res.value;
+    } catch {
+      return null;
+    }
+  }
+
+  async function resolveEvents(logs) {
+    const blockNums = [...new Set(logs.map(l => l.blockNumber))];
+    const blocks = await Promise.all(
+      blockNums.map(n => publicClient.getBlock({ blockNumber: n }))
+    );
+    const tsByBlock = {};
+    blockNums.forEach((n, i) => { tsByBlock[Number(n)] = Number(blocks[i].timestamp); });
+    const resolved = await Promise.all(logs.map(async log => {
+      const field = log.eventName === 'Borrowed' ? 'amount' : log.eventName === 'Repaid' ? 'assets' : 'shares';
+      const value = await decryptHandle(log.args[field]);
+      return normalizeLog(log, tsByBlock[Number(log.blockNumber)], value);
+    }));
+    return resolved.sort((a, b) => b.blockNumber - a.blockNumber);
+  }
 
   useEffect(() => {
     if (!address || !publicClient) return;
@@ -165,67 +215,47 @@ export function useVaultActivity(address) {
 
     async function fetch() {
       try {
-        const logs = await publicClient.getContractEvents({
-          address: VAULT, abi: vaultAbi,
-          eventName: EVENT_NAMES,
-          args: { user: address },
-          fromBlock: 0n,
-        });
-        if (cancelled) return;
-        const blockNums = [...new Set(logs.map(l => l.blockNumber))];
-        const blocks = await Promise.all(
-          blockNums.map(n => publicClient.getBlock({ blockNumber: n }))
-        );
-        const tsByBlock = {};
-        blockNums.forEach((n, i) => { tsByBlock[Number(n)] = Number(blocks[i].timestamp); });
-        setEvents(logs.map(l => normalizeLog(l, tsByBlock[Number(l.blockNumber)]))
-          .sort((a, b) => b.blockNumber - a.blockNumber));
-      } catch {
-        try {
-          const block = await publicClient.getBlockNumber();
-          const logs = await publicClient.getContractEvents({
+        const block = await publicClient.getBlockNumber();
+        const fromBlock = block - 9n;
+        const names = ['Deposited', 'Withdrawn', 'Borrowed', 'Repaid'];
+        const all = await Promise.all(names.map(eventName =>
+          publicClient.getContractEvents({
             address: VAULT, abi: vaultAbi,
-            eventName: EVENT_NAMES,
-            args: { user: address },
-            fromBlock: block - 5000n,
-          });
+            eventName, args: { user: address },
+            fromBlock, toBlock: block,
+          })
+        ));
+        const logs = all.flat();
+        if (cancelled) return;
+        if (logs.length) {
+          const resolved = await resolveEvents(logs);
           if (cancelled) return;
-          const blockNums = [...new Set(logs.map(l => l.blockNumber))];
-          const blocks = await Promise.all(
-            blockNums.map(n => publicClient.getBlock({ blockNumber: n }))
-          );
-          const tsByBlock = {};
-          blockNums.forEach((n, i) => { tsByBlock[Number(n)] = Number(blocks[i].timestamp); });
-          setEvents(logs.map(l => normalizeLog(l, tsByBlock[Number(l.blockNumber)]))
-            .sort((a, b) => b.blockNumber - a.blockNumber));
-        } catch { /* no events found */ }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+          setEvents(resolved);
+        }
+      } catch { /* no events yet */ }
+      if (!cancelled) setLoading(false);
     }
     fetch();
     return () => { cancelled = true; };
-  }, [address, publicClient]);
+  }, [address, publicClient, refetchTrigger]);
 
-  useWatchContractEvent({
-    address: VAULT, abi: vaultAbi,
-    eventName: EVENT_NAMES,
-    args: { user: address },
-    onLogs(logs) {
-      const now = Math.floor(Date.now() / 1000);
-      const fresh = logs.map(l => normalizeLog(l, now));
-      setEvents(prev => {
-        const merged = [...fresh, ...prev];
-        const seen = new Set();
-        return merged.filter(e => {
-          if (seen.has(e.txHash)) return false;
-          seen.add(e.txHash);
-          return true;
-        }).sort((a, b) => b.blockNumber - a.blockNumber);
-      });
-    },
-    enabled: !!address,
-  });
+  const addEvent = async (logs) => {
+    if (!Array.isArray(logs) || !logs.length) return;
+    const now = Math.floor(Date.now() / 1000);
+    const fresh = await Promise.all(logs.map(async l => {
+      const field = l.eventName === 'Borrowed' ? 'amount' : l.eventName === 'Repaid' ? 'assets' : 'shares';
+      const value = await decryptHandle(l.args[field]);
+      return normalizeLog(l, now, value);
+    }));
+    setEvents(prev => mergeEvents(prev, fresh));
+  };
 
-  return { events, loading };
+  useWatchContractEvent({ address: VAULT, abi: vaultAbi, eventName: 'Deposited', args: { user: address }, onLogs: addEvent, enabled: !!address });
+  useWatchContractEvent({ address: VAULT, abi: vaultAbi, eventName: 'Withdrawn', args: { user: address }, onLogs: addEvent, enabled: !!address });
+  useWatchContractEvent({ address: VAULT, abi: vaultAbi, eventName: 'Borrowed', args: { user: address }, onLogs: addEvent, enabled: !!address });
+  useWatchContractEvent({ address: VAULT, abi: vaultAbi, eventName: 'Repaid', args: { user: address }, onLogs: addEvent, enabled: !!address });
+
+  const refetch = () => setRefetchTrigger(n => n + 1);
+
+  return { events, loading, refetch };
 }

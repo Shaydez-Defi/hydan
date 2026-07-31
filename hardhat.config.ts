@@ -8,14 +8,9 @@ export default defineConfig({
     profiles: {
       default: {
         version: '0.8.35',
-      },
-      optimizer: {
-        version: '0.8.35',
         settings: {
-          optimizer: {
-            enabled: true,
-            runs: 200,
-          },
+          viaIR: true,
+          optimizer: { enabled: true, runs: 200 },
         },
       },
     },
