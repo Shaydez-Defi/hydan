@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useAccount, useConnect, useDisconnect, useWalletClient } from "wagmi";
+import { useAccount, useConnect, useDisconnect, useWalletClient, useSwitchChain } from "wagmi";
+import { sepolia } from "wagmi/chains";
 import { parseEther, parseUnits } from "viem";
 import { useWriteContract, useReadContract, usePublicClient } from "wagmi";
 import { createViemHandleClient } from "@iexec-nox/handle";
@@ -437,6 +438,28 @@ function LandingScreen({ c, onConnect, healthStatusHandle }) {
         <div className="lg:flex-1 lg:flex lg:justify-end">
           <ProofCard c={c} healthStatusHandle={healthStatusHandle} />
         </div>
+      </div>
+    </main>
+  );
+}
+
+/* ---------------------------------------------------------------------
+   Wrong network
+--------------------------------------------------------------------- */
+function WrongNetworkScreen({ c, onSwitch, switching }) {
+  return (
+    <main className="relative flex flex-col items-center justify-center px-6 py-16 max-w-xl mx-auto w-full text-center" style={{ minHeight: "calc(100vh - 96px)" }}>
+      <div className="btn-glass rounded-3xl p-10 w-full" style={{ color: c.ink }}>
+        <ShieldAlert size={40} style={{ color: c.carmine, margin: "0 auto 16px" }} />
+        <h2 className="font-wordmark" style={{ fontSize: "2.2rem" }}>Wrong network</h2>
+        <p className="text-sm mt-2 mb-8" style={{ color: c.inkSoft }}>
+          hýdan runs on the <strong>Sepolia testnet</strong>. Your wallet is on Ethereum Mainnet —
+          sending a transaction there would fail (or cost real money).
+        </p>
+        <button onClick={onSwitch} disabled={switching} className="press btn-glass inline-flex items-center gap-2 text-sm font-semibold px-7 py-3.5 rounded-full" style={{ color: c.ink }}>
+          {switching ? <Loader2 size={15} className="animate-spin" /> : <Unlock size={15} />}
+          {switching ? "Switching…" : "Switch to Sepolia"}
+        </button>
       </div>
     </main>
   );
@@ -1018,8 +1041,9 @@ export default function HydanApp() {
     setTimeout(() => setToast(null), 3000);
   }
 
-  const { address } = useAccount();
+  const { address, chain } = useAccount();
   const publicClient = usePublicClient();
+  const { switchChainAsync, isPending: switching } = useSwitchChain();
   const { connect, connectors } = useConnect({
     mutation: {
       onSuccess() { showToast("Wallet connected"); },
@@ -1055,9 +1079,12 @@ export default function HydanApp() {
         />
 
         {!address && <LandingScreen c={c} onConnect={handleConnect} healthStatusHandle={healthStatus} />}
-        {address && screen === "vault" && <VaultScreen c={c} aaveData={aaveData} totalAssetsRaw={totalAssetsRaw} maxWithdrawableRaw={maxWithdrawableRaw} userWethBalance={userWethBalance} address={address} vaultAddress={vaultAddress} showToast={showToast} />}
-        {address && screen === "explorer" && <ExplorerScreen c={c} aaveData={aaveData} vaultAddress={vaultAddress} />}
-        {address && screen === "automation" && <AutomationScreen c={c} aaveData={aaveData} />}
+        {address && chain && chain.id !== sepolia.id && (
+          <WrongNetworkScreen c={c} onSwitch={() => switchChainAsync({ chainId: sepolia.id })} switching={switching} />
+        )}
+        {address && (!chain || chain.id === sepolia.id) && screen === "vault" && <VaultScreen c={c} aaveData={aaveData} totalAssetsRaw={totalAssetsRaw} maxWithdrawableRaw={maxWithdrawableRaw} userWethBalance={userWethBalance} address={address} vaultAddress={vaultAddress} showToast={showToast} />}
+        {address && (!chain || chain.id === sepolia.id) && screen === "explorer" && <ExplorerScreen c={c} aaveData={aaveData} vaultAddress={vaultAddress} />}
+        {address && (!chain || chain.id === sepolia.id) && screen === "automation" && <AutomationScreen c={c} aaveData={aaveData} />}
 
         {!address && <LandingFooter c={c} />}
         {address && (
