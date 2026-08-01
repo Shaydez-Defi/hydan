@@ -89,6 +89,10 @@ const PALETTES = {
     greenLight: "#7CBE8C",
     greenInk: "#122016",
     greenSoft: "rgba(76,138,92,0.14)",
+    gold: "#A8823A",
+    goldSoft: "rgba(168,130,58,0.14)",
+    orange: "#C0572F",
+    orangeSoft: "rgba(192,87,47,0.14)",
     carmine: "#B23A30",
     carmineSoft: "rgba(178,58,48,0.12)",
     cardBorder: "rgba(27,51,32,0.08)",
@@ -115,6 +119,10 @@ const PALETTES = {
     greenLight: "#9BD1A7",
     greenInk: "#0D160F",
     greenSoft: "rgba(111,169,125,0.16)",
+    gold: "#D4AF5A",
+    goldSoft: "rgba(212,175,90,0.16)",
+    orange: "#E08A55",
+    orangeSoft: "rgba(224,138,85,0.16)",
     carmine: "#D9695F",
     carmineSoft: "rgba(217,105,95,0.14)",
     cardBorder: "rgba(255,255,255,0.10)",
@@ -752,10 +760,16 @@ function VaultScreen({ c, aaveData, totalAssetsRaw, maxWithdrawableRaw, userWeth
   const hf = aaveData ? aaveData[5] : null;
   const hfNum = hf && hf < maxUintHalf ? Number(hf) / 1e18 : null;
   const isDust = (aaveData ? aaveData[0] : 0n) < 100000n && (aaveData ? aaveData[1] : 0n) < 100000n;
-  const isHealthy = isDust || hfNum === null || hfNum > 1.05;
-  const hfLabel = isDust ? 'No position' : hfNum === null ? '∞' : hfNum > 3 ? 'Safe' : hfNum > 1.5 ? 'Moderate' : hfNum > 1.05 ? 'Risky' : 'Liquidation';
-  const hfColor = isDust ? c.inkFaint : hfNum === null ? c.green : hfNum > 3 ? c.green : hfNum > 1.5 ? c.gold : hfNum > 1.05 ? c.orange : c.carmine;
-  const hfBg = isDust ? c.chip : hfNum === null ? c.greenSoft : hfNum > 3 ? c.greenSoft : hfNum > 1.5 ? c.goldSoft : hfNum > 1.05 ? c.orangeSoft : c.carmineSoft;
+  const atRisk = !isDust && hfNum !== null && hfNum <= 1.5;
+  const healthBand = isDust ? { label: "No position", color: c.inkFaint, soft: c.chip, public: "no position" }
+    : hfNum === null ? { label: "∞", color: c.green, soft: c.greenSoft, public: "healthy" }
+    : hfNum > 3 ? { label: "Safe", color: c.green, soft: c.greenSoft, public: "healthy" }
+    : hfNum > 1.5 ? { label: "Moderate", color: c.gold, soft: c.goldSoft, public: "moderate" }
+    : hfNum > 1.05 ? { label: "Risky", color: c.orange, soft: c.orangeSoft, public: "at risk" }
+    : { label: "Liquidation", color: c.carmine, soft: c.carmineSoft, public: "liquidation" };
+  const hfLabel = healthBand.label;
+  const hfColor = healthBand.color;
+  const hfBg = healthBand.soft;
 
   const fmtHf = () => {
     if (isDust) return "—";
@@ -794,7 +808,7 @@ function VaultScreen({ c, aaveData, totalAssetsRaw, maxWithdrawableRaw, userWeth
                 <div className="text-xs" style={{ color: c.inkSoft }}>Collateral minus debt exposure</div>
               </div>
               <span className="inline-flex items-center justify-center w-9 h-9 rounded-full" style={{ background: hfBg, color: hfColor }}>
-                {hfNum === null || hfNum > 1.05 ? <ShieldCheck size={16} /> : <ShieldAlert size={16} />}
+                {atRisk ? <ShieldAlert size={16} /> : <ShieldCheck size={16} />}
               </span>
             </div>
 
@@ -818,7 +832,7 @@ function VaultScreen({ c, aaveData, totalAssetsRaw, maxWithdrawableRaw, userWeth
             </div>
 
             <p className="text-xs mt-4" style={{ color: c.inkFaint }}>
-              Publicly, this vault only ever shows as <span style={{ color: isHealthy ? c.green : c.carmine }}>{isHealthy ? "healthy" : "at risk"}</span>.
+              Publicly, this vault only ever shows as <span style={{ color: healthBand.color }}>{healthBand.public}</span>.
             </p>
           </div>
 
@@ -875,7 +889,7 @@ function ExplorerScreen({ c, aaveData, vaultAddress }) {
   const [query, setQuery] = useState("");
 
   const hf = aaveData ? aaveData[5] : null;
-  const isHealthy = !hf || hf > 10n ** 18n;
+  const isHealthy = !hf || hf > 15n * 10n ** 17n;
   const vault = {
     id: vaultAddress ? `${vaultAddress.slice(0, 6)}...${vaultAddress.slice(-4)}` : "—",
     status: isHealthy ? "healthy" : "risk",
