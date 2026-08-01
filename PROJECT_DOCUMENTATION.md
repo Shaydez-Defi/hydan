@@ -1,4 +1,4 @@
-# hydan — Complete Project Documentation
+# hydan - Complete Project Documentation
 
 Every technical detail about the hydan project: what it is, how it works, and how it was
 verified. This is the single source of truth for anyone (including future-me) who needs to
@@ -10,7 +10,7 @@ understand the system without reading every file.
 
 hydan is a **private lending vault** built as a solo hackathon entry for the **iExec WTF
 Hackathon** (Nox + Aave track, Sepolia). Users deposit **WETH** as collateral and borrow
-**USDC** against it — exactly like a normal Aave position — but each user's balance and debt
+**USDC** against it - exactly like a normal Aave position - but each user's balance and debt
 are stored on-chain as **unique Nox-encrypted handles** (`euint256`). Reading `balanceOf[user]`
 or `debtOf[user]` from a block explorer returns an opaque ciphertext that the Nox gateway
 refuses to serve publicly (HTTP `403`) and that only the position owner can decrypt with
@@ -66,7 +66,7 @@ Withdraw plus an activity feed.
 
 ---
 
-## 4. Nox — the core of the project (deep dive)
+## 4. Nox - the core of the project (deep dive)
 
 ### 4.1 What Nox is
 
@@ -74,7 +74,7 @@ Withdraw plus an activity feed.
 It lets smart contracts hold and compute on **encrypted values** while staying deterministic
 and auditable:
 
-- A value is encrypted into a **handle** — a `bytes32` ciphertext reference — that nobody can
+- A value is encrypted into a **handle** - a `bytes32` ciphertext reference - that nobody can
   read as plaintext without the right keys.
 - The heavy lifting (encryption, key management, decryption, proving) is done by the **Nox
   gateway** (off-chain, inside a **TEE / secure enclave**).
@@ -93,13 +93,13 @@ testnet gateway. These facts drive every design decision:
   unique handle returns **HTTP 403 `access_denied` ("not publicly decryptable")**.
 - **Compute results are unique and private too.** `add`, `sub`, `ge`, `eq` results all have
   byte 6 = `0x01` and `isPubliclyDecryptable = false`. A computed handle has **no viewers by
-  default** — the contract must explicitly call `Nox.addViewer(handle, addr)` for the owner
+  default** - the contract must explicitly call `Nox.addViewer(handle, addr)` for the owner
   to decrypt it.
 - **Owner decryption works via the authenticated path.** After `addViewer(handle, owner)`,
   `handleClient.decrypt(handle)` returns the correct plaintext (verified: `add` → `425242`,
   `sub(500000,300000)` → `200000`, deposit balance → `20000000000000000`).
 - **On-chain decryption requires a public handle.** `Nox.publicDecrypt(handle, proof)`
-  verifies the gateway proof (signature check) — but the gateway only mints proofs for
+  verifies the gateway proof (signature check) - but the gateway only mints proofs for
   handles that are `allowPublicDecryption`-marked. So any value a contract must decrypt
   on-chain is necessarily public; everything it _stores_ stays private.
 
@@ -118,7 +118,7 @@ testnet gateway. These facts drive every design decision:
 
 ---
 
-## 5. The contract — `contracts/HydanVault.sol`
+## 5. The contract - `contracts/HydanVault.sol`
 
 ### 5.1 Storage layout
 
@@ -160,14 +160,14 @@ Two-step deploy: deploy → look up pool/aToken → call setters (`deployNewWETH
 ### 5.4 `deposit(uint256 assets, address receiver, externalEuint256 encryptedAssets, bytes inputProof)`
 
 1. `require(assets > 0)`.
-2. `amount = Nox.fromExternal(encryptedAssets, inputProof)` — import the user's encrypted
+2. `amount = Nox.fromExternal(encryptedAssets, inputProof)` - import the user's encrypted
    amount handle, verifying the proof.
 3. Pull `assets` WETH from `msg.sender`, `forceApprove` the pool, `supply` to Aave (the vault
    supplies on its own behalf → aTokens accrue to the vault).
 4. **Store without ever decrypting:** `balanceOf[receiver] = balanceOf[receiver].add(amount)`;
    `aggregateBalance += amount`; `totalDeposited += assets`.
 5. Grant ACL: `allow(receiver)`, `allow(this)`, **`addViewer(balanceOf[receiver], receiver)`**
-   so the owner can decrypt. **Never** `allowPublicDecryption` — the balance stays private.
+   so the owner can decrypt. **Never** `allowPublicDecryption` - the balance stays private.
 6. Emit `Deposited(receiver, balanceOf[receiver])`.
 
 > The vault deliberately does **not** verify `encryptedAssets == assets`. Verification would
@@ -175,29 +175,29 @@ Two-step deploy: deploy → look up pool/aToken → call setters (`deployNewWETH
 > from the aggregate invariant (§5.6): an overstated declaration makes
 > `aggregateBalance != totalDeposited`, which blocks every withdrawal.
 
-### 5.5 `prepareWithdraw(uint256 assets, address onBehalfOf)` — step 1 of 2
+### 5.5 `prepareWithdraw(uint256 assets, address onBehalfOf)` - step 1 of 2
 
-1. `require(msg.sender == onBehalfOf, 'Only the position owner can prepare a withdrawal')` —
+1. `require(msg.sender == onBehalfOf, 'Only the position owner can prepare a withdrawal')`:
    **blocks the cross-user balance oracle** (see §14).
 2. `canWithdraw = balanceOf[onBehalfOf].ge(toEuint256(assets))` → **ebool**, computed on the
    encrypted balance inside the TEE.
 3. `booksOk = aggregateBalance.eq(toEuint256(totalDeposited))` → **ebool**. This is the
    soundness gate: it proves the sum of all encrypted balances still equals the plaintext sum.
-4. Store both, `allowPublicDecryption` both (they're booleans — safe to reveal), emit
+4. Store both, `allowPublicDecryption` both (they're booleans - safe to reveal), emit
    `WithdrawPrepared` / `BooksPrepared`.
 
 Nothing moves yet. The only information that can leave the TEE is "≥ X?" and "books match?".
 
-### 5.6 `withdraw(bytes approvalProof, bytes invariantProof, uint256 assets, address receiver, address owner)` — step 2 of 2
+### 5.6 `withdraw(bytes approvalProof, bytes invariantProof, uint256 assets, address receiver, address owner)` - step 2 of 2
 
-1. `require(msg.sender == owner, 'Only the position owner can withdraw')` — prevents an
+1. `require(msg.sender == owner, 'Only the position owner can withdraw')` - prevents an
    attacker from front-running a prepared withdrawal and redirecting the funds.
 2. `approved = publicDecrypt(withdrawApproval[owner], approvalProof)`; `require(approved)`.
 3. `booksOk = publicDecrypt(booksInvariant[owner], invariantProof)`; `require(booksOk,
 'Confidential books are inconsistent')`. **If any user ever overstated their balance, this
-   fails for everyone** — the position freezes rather than letting fake balances cash out.
+   fails for everyone** - the position freezes rather than letting fake balances cash out.
 4. One-time reset of both ebools.
-5. **Health cap:** `if (assets > maxWithdrawable()) assets = maxWithdrawable();` — never drops
+5. **Health cap:** `if (assets > maxWithdrawable()) assets = maxWithdrawable();` - never drops
    the vault below its liquidation edge.
 6. `balanceOf[owner] -= toEuint256(assets)` (capped amount); `aggregateBalance -= …`;
    `totalDeposited -= assets`.
@@ -206,26 +206,26 @@ Nothing moves yet. The only information that can leave the TEE is "≥ X?" and "
 
 Gas: **~444k** (measured live). `prepareWithdraw`: **~163k**.
 
-### 5.7 `prepareBorrow(externalEuint256 encryptedAmount, externalEuint256 encryptedStorage, bytes amountInputProof, bytes storageInputProof)` — step 1 of 2
+### 5.7 `prepareBorrow(externalEuint256 encryptedAmount, externalEuint256 encryptedStorage, bytes amountInputProof, bytes storageInputProof)` - step 1 of 2
 
 1. Import both handles via `fromExternal` (verifies both proofs).
 2. `allow(this)`, `allow(msg.sender)` on both.
-3. `allowPublicDecryption(amount)` — **only the amount handle**. The borrow amount has to be
+3. `allowPublicDecryption(amount)` - **only the amount handle**. The borrow amount has to be
    decrypted on-chain to call Aave, and Aave publicly emits the borrow anyway.
 
-The **storage handle is never made public** — it becomes the confidential `debtOf`.
+The **storage handle is never made public** - it becomes the confidential `debtOf`.
 
-### 5.8 `borrow(address _asset, externalEuint256 encryptedAmount, externalEuint256 encryptedStorage, bytes storageInputProof, bytes decryptionProof, uint256 interestRateMode, uint16 referralCode, address onBehalfOf)` — step 2 of 2
+### 5.8 `borrow(address _asset, externalEuint256 encryptedAmount, externalEuint256 encryptedStorage, bytes storageInputProof, bytes decryptionProof, uint256 interestRateMode, uint16 referralCode, address onBehalfOf)` - step 2 of 2
 
 1. `amount = euint256.wrap(unwrap(encryptedAmount))`; `assets = publicDecrypt(amount,
 decryptionProof)`; `require(assets > 0)`.
-2. `storageHandle = fromExternal(encryptedStorage, storageInputProof)` — re-verified; this is
+2. `storageHandle = fromExternal(encryptedStorage, storageInputProof)` - re-verified; this is
    the handle stored as the user's debt.
-3. `debtOf[onBehalfOf] = debtOf[onBehalfOf].add(storageHandle)`; grant ACL + `addViewer` —
+3. `debtOf[onBehalfOf] = debtOf[onBehalfOf].add(storageHandle)`; grant ACL + `addViewer`:
    **debt stays private**.
 4. `pool.borrow(_asset, assets, interestRateMode=2, referralCode=0, this)` (variable rate,
    vault borrows in its own name against its own aTokens).
-5. `safeTransfer(onBehalfOf, assets)` — the user gets the USDC.
+5. `safeTransfer(onBehalfOf, assets)` - the user gets the USDC.
 6. Emit `Borrowed(onBehalfOf, debtOf[onBehalfOf], interestRateMode)`.
 
 Gas: **~368–400k** measured.
@@ -271,7 +271,7 @@ Errors surfaced in the ABI: `MalformedDecryptedData(bytes)`, `SafeERC20FailedOpe
   and enforces soundness through the **aggregate invariant** instead of decrypting balances.
 - **1:1 bookkeeping** is an explicit simplification (OK'd by the user): no share-price
   accrual, `totalAssets()` = aToken balance, each deposit/withdraw moves 1:1.
-- **Owner-only `prepareWithdraw`/`withdraw`** — added after threat review to close the
+- **Owner-only `prepareWithdraw`/`withdraw`** - added after threat review to close the
   boolean-oracle and the front-running-redirect (§14).
 - No upgradeable proxies, no config-everything constructors, no custom error library (per
   `AGENTS.md`).
@@ -327,12 +327,12 @@ verify the full cycle without disturbing the live position.
 
 ### 7.1 Files
 
-- `src/main.jsx` — wagmi setup (sepolia + injected connector), React Query provider.
-- `src/App.jsx` — the whole UI: landing, vault screen, action modals, explorer, automation.
-- `src/hooks.js` — wagmi hooks + activity feed + Nox SDK usage; `VAULT` constant here.
-- `src/ActivityFeed.jsx` — decrypted activity list with a Lock+Encrypted fallback.
-- `src/abi/HydanVault.json` — regenerated from the artifact after every compile (35 entries).
-- `src/index.css` — Tailwind + utility layers.
+- `src/main.jsx` - wagmi setup (sepolia + injected connector), React Query provider.
+- `src/App.jsx` - the whole UI: landing, vault screen, action modals, explorer, automation.
+- `src/hooks.js` - wagmi hooks + activity feed + Nox SDK usage; `VAULT` constant here.
+- `src/ActivityFeed.jsx` - decrypted activity list with a Lock+Encrypted fallback.
+- `src/abi/HydanVault.json` - regenerated from the artifact after every compile (35 entries).
+- `src/index.css` - Tailwind + utility layers.
 
 ### 7.2 Key constants (`hooks.js` / `App.jsx`)
 
@@ -358,7 +358,7 @@ proof, amount, addr, addr)`.
   cap), live-subscribed afterwards; de-duped by `txHash`.
 - Decryption tries `handleClient.decrypt(handle)` first (owner/authenticated), falls back to
   `publicDecrypt`; failed rows render with a Lock icon. Events now emit unique private
-  handles, so non-owner observers see "Encrypted" rows — by design.
+  handles, so non-owner observers see "Encrypted" rows - by design.
 
 ### 7.5 Build quirk
 
@@ -369,17 +369,17 @@ default build). ~20–25s, emits `dist/` (gitignored).
 
 ## 8. Scripts & tooling (root `scripts/`)
 
-- **`deployNewWETH.mjs`** — deploys `HydanVault(WETH, PoolAddressesProvider, USDC)` (3M gas),
+- **`deployNewWETH.mjs`** - deploys `HydanVault(WETH, PoolAddressesProvider, USDC)` (3M gas),
   then `setAavePool` + resolves aWETH via the data provider + `setAToken`. Prints final config.
-- **`v3_position.mjs`** — the live demo: wraps/approves WETH, deposits 0.02 WETH, borrows
+- **`v3_position.mjs`** - the live demo: wraps/approves WETH, deposits 0.02 WETH, borrows
   15 USDC, then verifies both stored handles are unique, `403` on the public endpoint, and
   owner-decrypt correctly. Prints the Aave position.
-- **`v3_withdraw.mjs`** — withdraw round-trip: `prepareWithdraw` → fetch both proofs →
+- **`v3_withdraw.mjs`** - withdraw round-trip: `prepareWithdraw` → fetch both proofs →
   `withdraw` → re-deposit to restore. Prints the privacy checks.
-- **`v3_repay.mjs`** — repay round-trip: borrow 5 USDC → approve → repay → verify `debtOf`
+- **`v3_repay.mjs`** - repay round-trip: borrow 5 USDC → approve → repay → verify `debtOf`
   is unchanged (15 USDC) and private.
-- **`v3_borrow.mjs` / `v3_deposit.mjs`** — standalone borrow/deposit with privacy checks.
-- **`mintTestUSDC.ts`** (`pnpm mint:usdc`), **`wrapWETH.ts`** (`pnpm mint:weth`) — faucet helpers.
+- **`v3_borrow.mjs` / `v3_deposit.mjs`** - standalone borrow/deposit with privacy checks.
+- **`mintTestUSDC.ts`** (`pnpm mint:usdc`), **`wrapWETH.ts`** (`pnpm mint:weth`) - faucet helpers.
 
 All scripts read `SEPOLIA_PRIVATE_KEY` / `SEPOLIA_RPC_URL` from env (`set -a; source .env`).
 
@@ -459,10 +459,10 @@ npx vercel deploy dist --prod --yes
 
 **Public (by necessity):**
 
-- The vault's aggregate Aave position (aToken balance, debt tokens, health factor) — Aave
+- The vault's aggregate Aave position (aToken balance, debt tokens, health factor) - Aave
   makes this public.
-- Borrow/repay transaction amounts — Aave emits `Transfer`/debt-token events.
-- The two withdrawal ebools (`has enough`, `books match`) — required for on-chain verification.
+- Borrow/repay transaction amounts - Aave emits `Transfer`/debt-token events.
+- The two withdrawal ebools (`has enough`, `books match`) - required for on-chain verification.
 
 **Soundness:**
 
@@ -489,7 +489,7 @@ hydan adds no trusted third parties beyond those.
   returns `403` for them, and only you (via `addViewer`) can decrypt. Verified live.
 - **Why are balances private but borrow amounts public?** On-chain verification requires a
   public handle; Aave publicly emits borrows anyway. What we keep private is the _stored_
-  position — what appears in `balanceOf`/`debtOf` state.
+  position - what appears in `balanceOf`/`debtOf` state.
 - **What stops me from depositing 0.01 WETH but claiming 1 WETH?** The aggregate invariant:
   the encrypted sum must equal the plaintext sum at withdraw time, otherwise every withdrawal
   is blocked. You can't profit from lying.
@@ -505,7 +505,7 @@ hydan adds no trusted third parties beyond those.
 1. **Nox encrypt/decrypt is network-live only** (`toEuint256` → `wrapAsPublicHandle`); never
    fork-reproducible.
 2. **Unique ≠ public:** byte 6 of a handle is `0x01` for unique (private) handles; unique
-   handles `403` on `/v0/public`. Compute results are unique and viewerless by default —
+   handles `403` on `/v0/public`. Compute results are unique and viewerless by default:
    always `addViewer` before expecting an owner to decrypt.
 3. **On-chain decrypt forces public:** if a value must be decrypted inside the contract, mark
    it `allowPublicDecryption`; everything you want to _store privately_ must never be.
@@ -516,11 +516,11 @@ hydan adds no trusted third parties beyond those.
 6. **Alchemy free tier:** `eth_getLogs` capped at a 10-block range (frontend pins
    `latest-9n…latest`); `debug_traceCall` unavailable; `eth_call` state overrides OK.
 7. **Gas numbers (measured):** deposit ~418k, borrow ~368–400k, prepareWithdraw ~163k,
-   withdraw ~444k, repay ~310k. Always pass explicit gas limits — `toEuint256` subcalls make
+   withdraw ~444k, repay ~310k. Always pass explicit gas limits - `toEuint256` subcalls make
    estimates unreliable.
 8. **Approvals are consumed:** a 1:1 approval is used up by the first pull; scripts must
    re-approve before a re-deposit (v3_withdraw does).
-9. **`.env` vs hardhat vars:** hardhat CLI reads vars; plain scripts read env —
+9. **`.env` vs hardhat vars:** hardhat CLI reads vars; plain scripts read env:
    `set -a; source .env; set +a`.
 10. **Keep `frontend/src/abi/HydanVault.json` in sync** with the compiled artifact (regenerate
     after every compile), and keep `hooks.js` `VAULT` pointing at the shipping deployment.
