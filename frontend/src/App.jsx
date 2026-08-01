@@ -759,7 +759,7 @@ function VaultScreen({ c, aaveData, totalAssetsRaw, maxWithdrawableRaw, userWeth
   const maxUintHalf = 2n ** 255n;
   const hf = aaveData ? aaveData[5] : null;
   const hfNum = hf && hf < maxUintHalf ? Number(hf) / 1e18 : null;
-  const isDust = (aaveData ? aaveData[0] : 0n) < 100000n && (aaveData ? aaveData[1] : 0n) < 100000n;
+  const isDust = (aaveData ? aaveData[0] : 0n) < 1000000n && (aaveData ? aaveData[1] : 0n) < 1000000n;
   const atRisk = !isDust && hfNum !== null && hfNum <= 1.5;
   const healthBand = isDust ? { label: "No position", color: c.inkFaint, soft: c.chip, public: "no position" }
     : hfNum === null ? { label: "∞", color: c.green, soft: c.greenSoft, public: "healthy" }
@@ -889,7 +889,8 @@ function ExplorerScreen({ c, aaveData, vaultAddress }) {
   const [query, setQuery] = useState("");
 
   const hf = aaveData ? aaveData[5] : null;
-  const isHealthy = !hf || hf > 15n * 10n ** 17n;
+  const isDust = aaveData && aaveData[0] < 1000000n && aaveData[1] < 1000000n;
+  const isHealthy = isDust || !hf || hf > 15n * 10n ** 17n;
   const vault = {
     id: vaultAddress ? `${vaultAddress.slice(0, 6)}...${vaultAddress.slice(-4)}` : "—",
     status: isHealthy ? "healthy" : "risk",
