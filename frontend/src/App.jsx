@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAccount, useConnect, useDisconnect, useWalletClient, useSwitchChain } from "wagmi";
 import { sepolia } from "wagmi/chains";
-import { parseEther, parseUnits } from "viem";
+import { parseEther, parseUnits, formatUnits } from "viem";
 import { useWriteContract, useReadContract, usePublicClient } from "wagmi";
 import { createViemHandleClient } from "@iexec-nox/handle";
 import {
@@ -496,7 +496,7 @@ function buildActions(aaveData, userWethBalance, totalAssetsRaw, maxWithdrawable
   return [
     { key: "deposit", icon: Landmark, label: "Deposit", unit: "ETH", verb: "Deposit", tone: "green", helper: "Add collateral", max: eth(depositMax), hfAfter: "—" },
     { key: "borrow", icon: CircleDollarSign, label: "Borrow", unit: "USDC", verb: "Borrow", tone: "carmine", helper: "Draw more debt", max: base(borrowMax), hfAfter: "—" },
-    { key: "repay", icon: ShieldCheck, label: "Repay", unit: "USDC", verb: "Repay", tone: "green", helper: "Pay down debt", max: base(repayMax), hfAfter: "—" },
+    { key: "repay", icon: ShieldCheck, label: "Repay", unit: "USDC", verb: "Repay", tone: "green", helper: "Pay down debt", max: base(repayMax), maxRaw: repayMax / 100n, hfAfter: "—" }, // debtBase is 8-dec USD; USDC has 6 decimals (~$1)
     { key: "withdraw", icon: Unlock, label: "Withdraw", unit: "ETH", verb: "Withdraw", tone: "carmine", helper: "Free collateral", max: eth(withdrawMax), hfAfter: "—" },
   ];
 }
@@ -728,6 +728,11 @@ function ActionModal({ c, action, onClose, address, vaultAddress, showToast, ref
               style={{ color: c.ink }}
             />
             <span className="font-num text-sm" style={{ color: c.inkSoft }}>{action.unit}</span>
+            {action.key === "repay" && action.maxRaw > 0n && (
+              <button onClick={() => setAmount(formatUnits(action.maxRaw, 6))} className="press text-xs font-semibold px-2.5 py-1 rounded-full shrink-0" style={{ color: c.green, background: c.greenSoft }}>
+                Max
+              </button>
+            )}
           </div>
 
           <div className="flex gap-2">
