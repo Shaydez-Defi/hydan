@@ -545,10 +545,14 @@ function ActionModal({ c, action, onClose, address, vaultAddress, showToast, ref
           });
           await publicClient.waitForTransactionReceipt({ hash: approveHash });
         }
+        setStatus("encrypting");
+        if (!walletClient) throw new Error("Wallet not connected");
+        const handleClient = await createViemHandleClient(walletClient);
+        const { handle, handleProof } = await handleClient.encryptInput(weiAmount, 'uint256', vaultAddress);
         setStatus("pending");
         const depositHash = await writeContractAsync({
           address: vaultAddress, abi: vaultAbi, functionName: "deposit",
-          args: [weiAmount, address],
+          args: [weiAmount, address, handle, handleProof],
           gas: 800000n,
         });
         await publicClient.waitForTransactionReceipt({ hash: depositHash });
@@ -561,10 +565,14 @@ function ActionModal({ c, action, onClose, address, vaultAddress, showToast, ref
         const { handle, handleProof } = await handleClient.encryptInput(
           usdcAmount, 'uint256', vaultAddress,
         );
+        // Second handle for the confidential stored debt; never publicly decryptable.
+        const { handle: storageHandle, handleProof: storageProof } = await handleClient.encryptInput(
+          usdcAmount, 'uint256', vaultAddress,
+        );
         setStatus("preparing");
         const prepHash = await writeContractAsync({
           address: vaultAddress, abi: vaultAbi, functionName: "prepareBorrow",
-          args: [handle, handleProof], gas: 200000n,
+          args: [handle, storageHandle, handleProof, storageProof], gas: 200000n,
         });
         await publicClient.waitForTransactionReceipt({ hash: prepHash });
         setStatus("waiting");
@@ -585,7 +593,7 @@ function ActionModal({ c, action, onClose, address, vaultAddress, showToast, ref
         setStatus("pending");
         const borrowHash = await writeContractAsync({
           address: vaultAddress, abi: vaultAbi, functionName: "borrow",
-          args: [USDC, handle, decryptionProof, 2, 0, address],
+          args: [USDC, handle, storageHandle, storageProof, decryptionProof, 2, 0, address],
           gas: 800000n,
         });
         await publicClient.waitForTransactionReceipt({ hash: borrowHash });
@@ -617,32 +625,39 @@ function ActionModal({ c, action, onClose, address, vaultAddress, showToast, ref
         });
         let receipt = await publicClient.waitForTransactionReceipt({ hash: prepHash });
         const withdrawPreparedEvent = vaultAbi.find(e => e.name === 'WithdrawPrepared');
-        const logs = await publicClient.getLogs({
-          address: vaultAddress, event: withdrawPreparedEvent,
-          args: { user: address },
-          fromBlock: receipt.blockNumber,
-          toBlock: receipt.blockNumber,
-        });
-        const approvalHandle = logs[0].args.approval;
-        setStatus("waiting");
-        const saltArr = new Uint8Array(32);
-        crypto.getRandomValues(saltArr);
-        const salt = '0x' + Array.from(saltArr, b => b.toString(16).padStart(2, '0')).join('');
-        let decryptionProof;
-        for (let i = 0; i < 30; i++) {
-          const resp = await fetch('https://gateway-testnets.noxprotocol.dev/v0/public/' + approvalHandle + '?salt=' + salt);
-          if (resp.status === 200) {
-            const data = await resp.json();
-            decryptionProof = data.payload.decryptionProof;
-            break;
+        const booksPreparedEvent = vaultAbi.find(e => e.name === 'BooksPrepared');
+        const [wlogs, blogs] = await Promise.all([
+          publicClient.getLogs({
+            address: vaultAddress, event: withdrawPreparedEvent,
+            args: { user: address }, fromBlock: receipt.blockNumber, toBlock: receipt.blockNumber,
+          }),
+          publicClient.getLogs({
+            address: vaultAddress, event: booksPreparedEvent,
+            args: { user: address }, fromBlock: receipt.blockNumber, toBlock: receipt.blockNumber,
+          }),
+        ]);
+        const approvalHandle = wlogs[0].args.approval;
+        const invariantHandle = blogs[0].args.booksOk;
+        async function fetchProof(handle) {
+          const saltArr = new Uint8Array(32);
+          crypto.getRandomValues(saltArr);
+          const salt = '0x' + Array.from(saltArr, b => b.toString(16).padStart(2, '0')).join('');
+          for (let i = 0; i < 30; i++) {
+            const resp = await fetch('https://gateway-testnets.noxprotocol.dev/v0/public/' + handle + '?salt=' + salt);
+            if (resp.status === 200) {
+              const data = await resp.json();
+              return data.payload.decryptionProof;
+            }
+            await new Promise(r => setTimeout(r, 1000));
           }
-          await new Promise(r => setTimeout(r, 1000));
+          throw new Error('Gateway timeout');
         }
-        if (!decryptionProof) throw new Error('Gateway timeout');
+        setStatus("waiting");
+        const [approvalProof, invariantProof] = await Promise.all([fetchProof(approvalHandle), fetchProof(invariantHandle)]);
         setStatus("pending");
         const withdrawHash = await writeContractAsync({
           address: vaultAddress, abi: vaultAbi, functionName: "withdraw",
-          args: [decryptionProof, weiAmount, address, address],
+          args: [approvalProof, invariantProof, weiAmount, address, address],
           gas: 800000n,
         });
         await publicClient.waitForTransactionReceipt({ hash: withdrawHash });

@@ -51,21 +51,18 @@ interface IPriceOracleGetter {
   function getAssetPrice(address asset) external view returns (uint256);
 }
 
-interface IERC20Decimals {
-  function decimals() external view returns (uint8);
-}
-
 contract HydanVault {
   using SafeERC20 for IERC20;
   using Nox for euint256;
   using Nox for ebool;
 
   event VaultInitialized(address indexed asset, address indexed aavePool);
-  event Deposited(address indexed user, euint256 shares);
-  event Withdrawn(address indexed user, euint256 shares);
+  event Deposited(address indexed user, euint256 balance);
+  event Withdrawn(address indexed user, euint256 assets);
   event Borrowed(address indexed user, euint256 amount, uint256 interestRateMode);
   event Repaid(address indexed user, euint256 assets);
   event WithdrawPrepared(address indexed user, ebool approval);
+  event BooksPrepared(address indexed user, ebool booksOk);
   event HealthStatusUpdated(address indexed vault, ebool isHealthy);
 
   address public immutable asset;
@@ -75,11 +72,17 @@ contract HydanVault {
   address public immutable priceOracle;
   address public aToken;
 
-  uint256 public totalShares;
-
+  // Confidential per-user positions. Handles are unique and only the user
+  // (added as viewer) can decrypt them; they are never publicly decryptable.
   mapping(address => euint256) public balanceOf;
   mapping(address => euint256) public debtOf;
   mapping(address => ebool) public withdrawApproval;
+  mapping(address => ebool) public booksInvariant;
+
+  // Sum of all confidential balances, checked against totalDeposited at
+  // withdraw time so overstated declarations cannot be cashed out.
+  euint256 public aggregateBalance;
+  uint256 public totalDeposited;
 
   ebool public healthStatus;
 
@@ -116,73 +119,83 @@ contract HydanVault {
     return ((collateralBase - minCollateralBase) * 1e18) / price;
   }
 
-  function previewDeposit(uint256 assets) public view returns (uint256) {
-    if (totalShares == 0) return assets;
-    return (assets * totalShares) / totalAssets();
-  }
-
-  function previewWithdraw(uint256 assets) public view returns (uint256) {
-    if (totalShares == 0) return assets;
-    return (assets * totalShares) / totalAssets();
-  }
-
-  function deposit(uint256 assets, address receiver) external returns (euint256 shares) {
+  function deposit(
+    uint256 assets,
+    address receiver,
+    externalEuint256 encryptedAssets,
+    bytes calldata inputProof
+  ) external returns (euint256) {
     require(assets > 0, 'Amount must be > 0');
-
-    uint256 sharesPlain = previewDeposit(assets);
-    require(sharesPlain > 0, 'Zero shares');
-
-    shares = Nox.toEuint256(sharesPlain);
+    euint256 amount = Nox.fromExternal(encryptedAssets, inputProof);
+    amount.allow(address(this));
+    amount.allow(receiver);
 
     IERC20(asset).safeTransferFrom(msg.sender, address(this), assets);
     IERC20(asset).forceApprove(aavePool, assets);
     IPool(aavePool).supply(asset, assets, address(this), 0);
 
     if (euint256.unwrap(balanceOf[receiver]) == bytes32(0)) {
-      balanceOf[receiver] = shares;
+      balanceOf[receiver] = amount;
     } else {
-      balanceOf[receiver] = balanceOf[receiver].add(shares);
+      balanceOf[receiver] = balanceOf[receiver].add(amount);
     }
-    totalShares += sharesPlain;
+    aggregateBalance = aggregateBalance.add(amount);
+    totalDeposited += assets;
 
-    balanceOf[receiver].allow(receiver);
     balanceOf[receiver].allow(address(this));
+    balanceOf[receiver].allow(receiver);
+    Nox.addViewer(balanceOf[receiver], receiver);
+    aggregateBalance.allow(address(this));
 
-    emit Deposited(receiver, shares);
+    emit Deposited(receiver, balanceOf[receiver]);
+    return balanceOf[receiver];
   }
 
   function prepareWithdraw(uint256 assets, address onBehalfOf) external {
-    uint256 shares = previewWithdraw(assets);
-    require(shares > 0, 'Zero shares');
-    euint256 sharesEncrypted = Nox.toEuint256(shares);
-    ebool canWithdraw = balanceOf[onBehalfOf].ge(sharesEncrypted);
+    require(msg.sender == onBehalfOf, 'Only the position owner can prepare a withdrawal');
+    require(assets > 0, 'Amount must be > 0');
+    ebool canWithdraw = balanceOf[onBehalfOf].ge(Nox.toEuint256(assets));
+    ebool booksOk = aggregateBalance.eq(Nox.toEuint256(totalDeposited));
     withdrawApproval[onBehalfOf] = canWithdraw;
+    booksInvariant[onBehalfOf] = booksOk;
     Nox.allowPublicDecryption(canWithdraw);
+    Nox.allowPublicDecryption(booksOk);
     emit WithdrawPrepared(onBehalfOf, canWithdraw);
+    emit BooksPrepared(onBehalfOf, booksOk);
   }
 
-  function withdraw(bytes calldata approvalProof, uint256 assets, address receiver, address owner) external {
+  function withdraw(
+    bytes calldata approvalProof,
+    bytes calldata invariantProof,
+    uint256 assets,
+    address receiver,
+    address owner
+  ) external {
+    require(msg.sender == owner, 'Only the position owner can withdraw');
     bool approved = Nox.publicDecrypt(withdrawApproval[owner], approvalProof);
     require(approved, 'Withdraw not approved');
+    bool booksOk = Nox.publicDecrypt(booksInvariant[owner], invariantProof);
+    require(booksOk, 'Confidential books are inconsistent');
     withdrawApproval[owner] = ebool.wrap(bytes32(0));
+    booksInvariant[owner] = ebool.wrap(bytes32(0));
 
     uint256 maxAssets = maxWithdrawable();
     if (assets > maxAssets) assets = maxAssets;
 
-    uint256 shares = previewWithdraw(assets);
-    require(shares > 0, 'Zero shares');
-
-    euint256 sharesEncrypted = Nox.toEuint256(shares);
-    balanceOf[owner] = balanceOf[owner].sub(sharesEncrypted);
-    totalShares -= shares;
+    euint256 assetsEncrypted = Nox.toEuint256(assets);
+    balanceOf[owner] = balanceOf[owner].sub(assetsEncrypted);
+    aggregateBalance = aggregateBalance.sub(assetsEncrypted);
+    totalDeposited -= assets;
 
     uint256 withdrawn = IPool(aavePool).withdraw(asset, assets, address(this));
     IERC20(asset).safeTransfer(receiver, withdrawn);
 
     balanceOf[owner].allow(owner);
     balanceOf[owner].allow(address(this));
+    Nox.addViewer(balanceOf[owner], owner);
+    aggregateBalance.allow(address(this));
 
-    emit Withdrawn(owner, sharesEncrypted);
+    emit Withdrawn(owner, assetsEncrypted);
   }
 
   function updateHealthStatus(
@@ -198,36 +211,51 @@ contract HydanVault {
     emit HealthStatusUpdated(address(this), isHealthy);
   }
 
-  function prepareBorrow(externalEuint256 encryptedAmount, bytes calldata inputProof) external {
-    euint256 amountEncrypted = Nox.fromExternal(encryptedAmount, inputProof);
-    amountEncrypted.allow(address(this));
-    amountEncrypted.allow(msg.sender);
-    Nox.allowPublicDecryption(amountEncrypted);
+  function prepareBorrow(
+    externalEuint256 encryptedAmount,
+    externalEuint256 encryptedStorage,
+    bytes calldata amountInputProof,
+    bytes calldata storageInputProof
+  ) external {
+    euint256 amount = Nox.fromExternal(encryptedAmount, amountInputProof);
+    euint256 storageHandle = Nox.fromExternal(encryptedStorage, storageInputProof);
+    amount.allow(address(this));
+    amount.allow(msg.sender);
+    storageHandle.allow(address(this));
+    storageHandle.allow(msg.sender);
+    Nox.allowPublicDecryption(amount);
   }
 
   function borrow(
     address _asset,
     externalEuint256 encryptedAmount,
+    externalEuint256 encryptedStorage,
+    bytes calldata storageInputProof,
     bytes calldata decryptionProof,
     uint256 interestRateMode,
     uint16 referralCode,
     address onBehalfOf
   ) external {
-    bytes32 raw = externalEuint256.unwrap(encryptedAmount);
-    euint256 amountEncrypted = euint256.wrap(raw);
-    uint256 assets = Nox.publicDecrypt(amountEncrypted, decryptionProof);
+    euint256 amount = euint256.wrap(externalEuint256.unwrap(encryptedAmount));
+    uint256 assets = Nox.publicDecrypt(amount, decryptionProof);
     require(assets > 0, 'Amount must be > 0');
 
+    euint256 storageHandle = Nox.fromExternal(encryptedStorage, storageInputProof);
+    storageHandle.allow(address(this));
+    storageHandle.allow(onBehalfOf);
+
     if (euint256.unwrap(debtOf[onBehalfOf]) == bytes32(0)) {
-      debtOf[onBehalfOf] = amountEncrypted;
+      debtOf[onBehalfOf] = storageHandle;
     } else {
-      debtOf[onBehalfOf] = debtOf[onBehalfOf].add(amountEncrypted);
+      debtOf[onBehalfOf] = debtOf[onBehalfOf].add(storageHandle);
     }
     debtOf[onBehalfOf].allow(onBehalfOf);
     debtOf[onBehalfOf].allow(address(this));
+    Nox.addViewer(debtOf[onBehalfOf], onBehalfOf);
+
     IPool(aavePool).borrow(_asset, assets, interestRateMode, referralCode, address(this));
     IERC20(_asset).safeTransfer(onBehalfOf, assets);
-    emit Borrowed(onBehalfOf, amountEncrypted, interestRateMode);
+    emit Borrowed(onBehalfOf, debtOf[onBehalfOf], interestRateMode);
   }
 
   function repay(address _asset, uint256 assets, uint256 interestRateMode, address onBehalfOf) external {
@@ -241,6 +269,8 @@ contract HydanVault {
     debtOf[onBehalfOf] = debtOf[onBehalfOf].sub(assetsEncrypted);
     debtOf[onBehalfOf].allow(onBehalfOf);
     debtOf[onBehalfOf].allow(address(this));
+    Nox.addViewer(debtOf[onBehalfOf], onBehalfOf);
+
     emit Repaid(onBehalfOf, assetsEncrypted);
   }
 }

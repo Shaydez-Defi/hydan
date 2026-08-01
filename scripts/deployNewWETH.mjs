@@ -27,7 +27,7 @@ async function main() {
     abi: artifact.abi,
     bytecode: artifact.bytecode,
     args: [WETH, POOL_ADDRESSES_PROVIDER, USDC],
-    gas: 2000000n,
+    gas: 3000000n,
   });
   console.log('Deploy tx:', hash);
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
@@ -73,8 +73,8 @@ async function main() {
   console.log('AavePool:', aavePool);
   const aToken = await vault.read.aToken();
   console.log('AToken:', aToken);
-  const totalShares = await vault.read.totalShares();
-  console.log('Total shares:', totalShares);
+  const totalDeposited = await vault.read.totalDeposited();
+  console.log('Total deposited:', totalDeposited);
   const totalAssets = await vault.read.totalAssets();
   console.log('Total assets:', totalAssets);
 

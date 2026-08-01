@@ -3,7 +3,7 @@ import { useReadContract, useWriteContract, useAccount, usePublicClient, useWatc
 import { createViemHandleClient } from '@iexec-nox/handle';
 import vaultAbi from './abi/HydanVault.json';
 
-const VAULT = '0xb05c9770e926bf193f1d69a4490591ab18e6a12a';
+const VAULT = '0x330b5c509bc1621585e88dc4c07b763e4a399fba';
 const WETH = '0xC558DBdd856501FCd9aaF1E62eae57A9F0629a3c';
 export const USDC = '0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8';
 
@@ -34,16 +34,12 @@ export function useTokenAddress() {
   return WETH;
 }
 
-export function useVaultTotalShares() {
-  return useReadContract({ address: VAULT, abi: vaultAbi, functionName: 'totalShares' });
+export function useVaultMaxWithdrawable() {
+  return useReadContract({ address: VAULT, abi: vaultAbi, functionName: 'maxWithdrawable' });
 }
 
 export function useVaultTotalAssets() {
   return useReadContract({ address: VAULT, abi: vaultAbi, functionName: 'totalAssets' });
-}
-
-export function useVaultMaxWithdrawable() {
-  return useReadContract({ address: VAULT, abi: vaultAbi, functionName: 'maxWithdrawable' });
 }
 
 export function useVaultHealthStatus() {
@@ -57,16 +53,6 @@ export function useAssetInfo() {
   };
 }
 
-export function useUserBalance(address) {
-  return useReadContract({
-    address: VAULT,
-    abi: vaultAbi,
-    functionName: 'balanceOf',
-    args: [address],
-    query: { enabled: !!address },
-  });
-}
-
 export function useUserWethBalance(address) {
   return useReadContract({
     address: WETH,
@@ -75,34 +61,6 @@ export function useUserWethBalance(address) {
     args: [address],
     query: { enabled: !!address },
   });
-}
-
-export function usePreviewDeposit(assets) {
-  return useReadContract({
-    address: VAULT,
-    abi: vaultAbi,
-    functionName: 'previewDeposit',
-    args: [assets],
-    query: { enabled: assets > 0n },
-  });
-}
-
-export function usePreviewWithdraw(assets) {
-  return useReadContract({
-    address: VAULT,
-    abi: vaultAbi,
-    functionName: 'previewWithdraw',
-    args: [assets],
-    query: { enabled: assets > 0n },
-  });
-}
-
-export function useVaultPoolAddress() {
-  return useReadContract({ address: VAULT, abi: vaultAbi, functionName: 'aavePool' });
-}
-
-export function useVaultAsset() {
-  return useReadContract({ address: VAULT, abi: vaultAbi, functionName: 'asset' });
 }
 
 export function useVaultAaveData(address) {
@@ -148,6 +106,13 @@ export function useTokenApprove() {
 
 const TYPE_UNIT = { deposit: 'ETH', withdraw: 'ETH', borrow: 'USDC', repay: 'USDC' };
 
+const EVENT_HANDLE_FIELD = {
+  Deposited: 'balance',
+  Withdrawn: 'assets',
+  Borrowed: 'amount',
+  Repaid: 'assets',
+};
+
 function normalizeLog(log, ts, value) {
   const type = log.eventName === 'Deposited' ? 'deposit'
     : log.eventName === 'Withdrawn' ? 'withdraw'
@@ -186,8 +151,15 @@ export function useVaultActivity(address) {
     try {
       if (!walletClient || !handle) return null;
       const handleClient = await createViemHandleClient(walletClient);
-      const res = await handleClient.publicDecrypt(handle);
-      return res.value;
+      // Deposits and borrows emit unique handles this user is a viewer of
+      // (only they can decrypt). Withdraws and repays emit public handles.
+      try {
+        const { value } = await handleClient.decrypt(handle);
+        return value;
+      } catch {
+        const res = await handleClient.publicDecrypt(handle);
+        return res.value;
+      }
     } catch {
       return null;
     }
@@ -201,8 +173,7 @@ export function useVaultActivity(address) {
     const tsByBlock = {};
     blockNums.forEach((n, i) => { tsByBlock[Number(n)] = Number(blocks[i].timestamp); });
     const resolved = await Promise.all(logs.map(async log => {
-      const field = log.eventName === 'Borrowed' ? 'amount' : log.eventName === 'Repaid' ? 'assets' : 'shares';
-      const value = await decryptHandle(log.args[field]);
+      const value = await decryptHandle(log.args[EVENT_HANDLE_FIELD[log.eventName]]);
       return normalizeLog(log, tsByBlock[Number(log.blockNumber)], value);
     }));
     return resolved.sort((a, b) => b.blockNumber - a.blockNumber);
@@ -243,8 +214,7 @@ export function useVaultActivity(address) {
     if (!Array.isArray(logs) || !logs.length) return;
     const now = Math.floor(Date.now() / 1000);
     const fresh = await Promise.all(logs.map(async l => {
-      const field = l.eventName === 'Borrowed' ? 'amount' : l.eventName === 'Repaid' ? 'assets' : 'shares';
-      const value = await decryptHandle(l.args[field]);
+      const value = await decryptHandle(l.args[EVENT_HANDLE_FIELD[l.eventName]]);
       return normalizeLog(l, now, value);
     }));
     setEvents(prev => mergeEvents(prev, fresh));
